@@ -1,3 +1,14 @@
-#  Update your requirements.
-#  numpy==1.18.1
+# Image and Array Processing
+Pillow
+numpy
+opencv-python-headless
 
+# API and Network Requests (For Ollama)
+requests
+
+# Face Restoration (CodeFormer dependencies)
+facexlib
+basicsr
+
+# VRAM Optimization
+sageattention
