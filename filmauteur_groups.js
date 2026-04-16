@@ -8,6 +8,24 @@ app.registerExtension({
             const onNodeCreated = nodeType.prototype.onNodeCreated;
             const onConfigure = nodeType.prototype.onConfigure;
             
+            // THE FIX: Intercept the workflow saving process to strip out the injected buttons.
+            // This guarantees the saved array exactly matches the Python backend, permanently curing the NaN shift!
+            const onSerialize = nodeType.prototype.onSerialize;
+            nodeType.prototype.onSerialize = function(o) {
+                if (onSerialize) onSerialize.apply(this, arguments);
+                
+                if (this.widgets && o.widgets_values) {
+                    let cleanValues = [];
+                    for (let i = 0; i < this.widgets.length; i++) {
+                        // If it's NOT our custom visual button, safely save its value to the JSON
+                        if (!this.widgets[i].isCustomGrouper) {
+                            cleanValues.push(o.widgets_values[i]);
+                        }
+                    }
+                    o.widgets_values = cleanValues;
+                }
+            };
+            
             // Hook into the loading sequence to capture the TRUE saved size before LiteGraph mangles it
             nodeType.prototype.onConfigure = function(info) {
                 if (onConfigure) onConfigure.apply(this, arguments);
@@ -80,6 +98,9 @@ app.registerExtension({
                                 
                                 app.graph.setDirtyCanvas(true, true);
                             });
+
+                            // THE FIX FLAG: Tag this button so `onSerialize` knows to delete it from the save file
+                            btn.isCustomGrouper = true; 
 
                             this.widgets.pop(); 
                             this.widgets.splice(dummyIndex, 0, btn);
