@@ -3,7 +3,7 @@ name = "ComfyUI-triXope"
 description = "A collection of custom built ComfyUI nodes designed for film production pipelines."
 version = "1.0.0"
 license = {file = "LICENSE"}
-dependencies = ["",]  # e.g.) ["numpy==1.18.1", ]
+dependencies = ["Pillow", "numpy", "opencv-python-headless", "requests", "facexlib", "basicsr", "sageattention",]
 
 [project.urls]
 Repository = "https://github.com/triXope/Comfyuio-triXope"
