@@ -27,8 +27,6 @@ What the node does/features:
 • Built-in sageattention and fp16 accumulation (must be installed to use) <br>
 • Built in chunk feed forward (to assist in computational efficiency) <br>
 
-Requirements: Download and place face restore model with .pt or .pth file extension in "facerestore_models" folder (eg. codeformer, GFPGAN, etc.)
-
 Note: Refer to the tooltips for important information.
 
 Just plug in your models, optional reference images and/or audio, set your desired paramerters, send it out to your preferred video save or combine node, and you're good-to-go.
