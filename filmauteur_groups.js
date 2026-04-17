@@ -5,13 +5,14 @@ app.registerExtension({
     async beforeRegisterNodeDef(nodeType, nodeData, app) {
         if (nodeData.name === "FilmAuteur_LTXV") {
             
-            // --- NaN SHIFT FIX: Keeps the save file pure ---
+            // --- Keeps save files pure ---
             const onSerialize = nodeType.prototype.onSerialize;
             nodeType.prototype.onSerialize = function(o) {
                 if (onSerialize) onSerialize.apply(this, arguments);
                 if (this.widgets && o.widgets_values) {
                     let cleanValues = [];
                     for (let i = 0; i < this.widgets.length; i++) {
+                        // Strip our custom UI buttons from the payload
                         if (!this.widgets[i].isCustomGrouperBtn) {
                             cleanValues.push(o.widgets_values[i]);
                         }
@@ -35,8 +36,6 @@ app.registerExtension({
                     { btnName: "grp_vram_optimization", label: "VRAM", widgets: ["enable_fp16_accumulation", "sage_attention", "chunks"] }
                 ];
 
-                // --- YOUR BRILLIANT TOOLTIP ARCHITECTURE ---
-                // Define all tooltips here in JS. The script will inject and annihilate them dynamically!
                 const WIDGET_TOOLTIPS = {
                     "bypass_img_ref": "Bypass the image reference.",
                     "bypass_first_frame": "Bypass the first frame (for image-to-video).",
@@ -68,11 +67,7 @@ app.registerExtension({
 
                 const toggleWidget = (w, visible) => {
                     if (!w) return;
-
-                    // --- THE PLUG FIX ---
-                    // If the user converted this widget to an input plug, ignore it. 
-                    // This lets ComfyUI natively manage the wire anchors without layout interference!
-                    if (w.type === "converted-widget") return;
+                    if (w.type === "converted-widget") return; // Respect actual wired inputs
 
                     w.hidden = !visible;
                     if (w.element) w.element.style.display = visible ? "" : "none";
@@ -84,17 +79,18 @@ app.registerExtension({
                         } else {
                             delete w.computeSize; 
                         }
-                        
-                        // INJECT TOOLTIP
                         w.tooltip = WIDGET_TOOLTIPS[w.name] || "";
-                        
                     } else {
                         if (!w.hasOwnProperty('origComputeSize')) {
                             w.origComputeSize = w.hasOwnProperty('computeSize') ? w.computeSize : undefined;
                         }
                         w.computeSize = () => [0, 0];
                         
-                        // ANNIHILATE TOOLTIP
+                        // THE FIX: Destroy the cached layout coordinates. 
+                        // If these are undefined, ComfyUI physically cannot draw the connection dot.
+                        w.y = undefined;
+                        w.last_y = undefined;
+                        
                         w.tooltip = null; 
                     }
                 };
@@ -105,7 +101,7 @@ app.registerExtension({
                         
                         if (dummyIndex !== -1) {
                             let dummyWidget = this.widgets[dummyIndex];
-                            toggleWidget(dummyWidget, false);
+                            toggleWidget(dummyWidget, false); // Nuke the dummy header's dot
 
                             let propKey = "groupState_" + def.btnName;
                             if (this.properties[propKey] === undefined) {
