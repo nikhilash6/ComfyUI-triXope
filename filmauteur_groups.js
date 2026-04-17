@@ -1,5 +1,9 @@
 import { app } from "../../scripts/app.js";
 
+const style = document.createElement("style");
+style.innerHTML = ".comfy-img-preview { pointer-events: none !important; } img[src*='stage1_preview'] { pointer-events: none !important; }";
+document.head.appendChild(style);
+
 app.registerExtension({
     name: "triXope.FilmAuteur_LTXV.Groups",
     async beforeRegisterNodeDef(nodeType, nodeData, app) {
