@@ -12,12 +12,21 @@ app.registerExtension({
                 if (this.widgets && o.widgets_values) {
                     let cleanValues = [];
                     for (let i = 0; i < this.widgets.length; i++) {
-                        // Strip our custom UI buttons from the payload
                         if (!this.widgets[i].isCustomGrouperBtn) {
                             cleanValues.push(o.widgets_values[i]);
                         }
                     }
                     o.widgets_values = cleanValues;
+                }
+            };
+
+            // --- RESTORES SAVED HEIGHT ---
+            const onConfigure = nodeType.prototype.onConfigure;
+            nodeType.prototype.onConfigure = function(o) {
+                if (onConfigure) onConfigure.apply(this, arguments);
+                // Stash the exact size from the JSON save file before any layout math messes with it
+                if (o.size) {
+                    this._true_saved_size = [o.size[0], o.size[1]];
                 }
             };
 
