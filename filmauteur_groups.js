@@ -1,8 +1,78 @@
 import { app } from "../../scripts/app.js";
+import { api } from "../../scripts/api.js";
 
 const style = document.createElement("style");
 style.innerHTML = ".comfy-img-preview { pointer-events: none !important; } img[src*='stage1_preview'] { pointer-events: none !important; }";
 document.head.appendChild(style);
+
+// --- DYNAMIC ANIMATED MID-GENERATION PREVIEW RECEIVER ---
+api.addEventListener("trixope_ltxv_preview", (event) => {
+    const data = event.detail;
+    const node = app.graph.getNodeById(data.node);
+    
+    if (node) {
+        // 1. Look for our custom preview widget
+        let previewWidget = node.widgets && node.widgets.find(w => w.name === "stage1_preview");
+        
+        if (!previewWidget) {
+            // Create the HTML image element
+            const imgEl = document.createElement("img");
+            imgEl.style.width = "100%";
+            imgEl.style.objectFit = "contain";
+            imgEl.style.pointerEvents = "none"; // Intangible to mouse clicks (allows right-clicking)
+            
+            // Let ComfyUI handle ALL the math, scaling, panning, and clipping natively
+            previewWidget = node.addDOMWidget("stage1_preview", "preview", imgEl, {
+                serialize: false,
+                hideOnZoom: false
+            });
+            
+            // Let the widget mathematically reserve vertical space on the node
+            previewWidget.computeSize = function(width) {
+                let height = (width * 9) / 16; // Default 16:9 ratio
+                
+                if (this.element && this.element.naturalWidth > 0) {
+                    const ratio = this.element.naturalHeight / this.element.naturalWidth;
+                    height = width * ratio;
+                }
+                
+                this.element.style.height = height + "px";
+                return [width, height + 10]; // +10 for padding
+            };
+
+            // --- THE RESIZE ENGINE ---
+            // Intercepts the user dragging the bottom-right corner of the node
+            const origOnResize = node.onResize;
+            node.onResize = function(size) {
+                if (origOnResize) origOnResize.apply(this, arguments);
+                
+                if (previewWidget.element) {
+                    let ratio = 9 / 16;
+                    if (previewWidget.element.naturalWidth > 0) {
+                        ratio = previewWidget.element.naturalHeight / previewWidget.element.naturalWidth;
+                    }
+                    
+                    // Fluidly scale the HTML element's height relative to the new dragged width!
+                    const newHeight = size[0] * ratio;
+                    previewWidget.element.style.height = newHeight + "px";
+                }
+            };
+        }
+        
+        // 2. Trigger Playback!
+        previewWidget.element.src = api.apiURL(`/view?filename=${data.filename}&type=${data.type}&t=${Date.now()}`);
+        
+        // 3. Snap node size to fit perfectly once the browser downloads the first frame
+        previewWidget.element.onload = () => {
+            // Respect the user's custom dragged width, but adjust the height perfectly to fit the video
+            const currentWidth = node.size[0];
+            const idealSize = node.computeSize([currentWidth, node.size[1]]);
+            
+            node.setSize([currentWidth, idealSize[1]]);
+            app.graph.setDirtyCanvas(true, true);
+        };
+    }
+});
 
 app.registerExtension({
     name: "triXope.FilmAuteur_LTXV.Groups",
@@ -76,6 +146,7 @@ app.registerExtension({
                     "enable_fp16_accumulation": "Enable torch.backends.cuda.matmul.allow_fp16_accumulation.",
                     "sage_attention": "Patch comfy attention to use sageattn.",
                     "chunks": "Number of chunks to split the feedforward activations into to reduce peak VRAM usage.",
+                    "stage_1_preview": "Enable or disable the animated preview after the first processing stage.",
                 };
 
                 const toggleWidget = (w, visible) => {
