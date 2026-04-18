@@ -1,3 +1,5 @@
+Please check back frequently as I am making constant updates and improvements...
+
 Here you will find a collection of custom nodes for ComfyUI with the intent of enhancing your film production workflow.
 
 Let me preface by saying that I am not a developer by trade, nor do I have a background in programming. I come from a traditional filmmaking background, with my focus being writing, directing, and cinematography.
@@ -13,7 +15,7 @@ What the node does/features:
 
 • Text-to-Video <br>
 • Image-to-Video <br>
-• Image Reference-to-Video <br>
+• Image Reference-to-Video (experimental work-in-progress) <br>
 • Audio-to-Video <br>
 • Audio Reference (with ID-LoRA) <br>
 • Ollama integration for prompt enhancement (I recommend Gemma 4) <br>
