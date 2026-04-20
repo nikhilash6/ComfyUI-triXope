@@ -18,13 +18,13 @@ What the node does/features:
 • Image Reference-to-Video (experimental work-in-progress) <br>
 • Audio-to-Video <br>
 • Audio Reference (with ID-LoRA) <br>
-• Ollama integration for prompt enhancement (I recommend Gemma 4) <br>
+• Ollama integration for prompt enhancement (Gemma 4 26b recommended) <br>
 • Length input as seconds (calculated & converted to frame count internally based on fps) <br>
 • Multi-shot inferencing using "|" separators between prompts <br>
 • first_frame input accepts image batch for storyboard processing (1 shot per image coinciding with multi-prompt input) <br>
 • Inifinite (truly) length by use of autoregressive chunking and built-in sliding context windows <br>
 • Up to 3 sampling stages for built-in upsampling (model2_opt if wanted for stages 2 & 3) <br>
-• Temporal upscaling option (double framerate and visual refinement) <br>
+• Temporal upscaling option (enable to double framerate and visual refinement) <br>
 • Face restoration to help with cleaning up faces and removing artifacts (place face restore model with .pt or .pth file extension in "facerestore_models" folder (eg. <a href="https://huggingface.co/models?search=codeformer">codeformer</a>, <a href="https://huggingface.co/models?search=gfpgan">GFPGAN</a>, etc.)) <br>
 • Built-in sageattention and fp16 accumulation (must be installed to use) <br>
 • Built in chunk feed forward (to assist in computational efficiency) <br>
