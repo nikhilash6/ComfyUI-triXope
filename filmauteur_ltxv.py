@@ -250,7 +250,7 @@ class FilmAuteur_LTXV:
                 "primary_steps": ("STRING", {"multiline": False, "default": "1.0, 0.995, 0.99, 0.9875, 0.975, 0.65, 0.28, 0.07, 0.0"}),
                 "upsample_sampler_name": (sampler_names, {"default": upsample_default}),
                 "upsample_cfg": ("FLOAT", {"default": 1.5, "min": 0.0, "max": 100.0, "step": 0.1, "round": 0.01}),
-                "upsample_manual_sigmas": ("STRING", {"multiline": False, "default": "0.85, 0.7250, 0.4219, 0.0"}),
+                "upsample_manual_sigmas": ("STRING", {"multiline": False, "default": "0.55, 0.35, 0.15, 0.0"}),
                 "eta": ("FLOAT", {"default": 0.95, "min": -100.0, "max": 100.0, "step": 0.01, "round": False}),
                 "bongmath": ("BOOLEAN", {"default": True}),
                 "autoregressive_chunking": ("BOOLEAN", {"default": True}),
@@ -266,7 +266,7 @@ class FilmAuteur_LTXV:
                 "codeformer_fidelity": ("FLOAT", {"default": 0.5, "min": 0.0, "max": 1.0, "step": 0.05}),
                 "face_restore_color_match": ("BOOLEAN", {"default": True}),
                 "face_restore_edge_blur": ("BOOLEAN", {"default": True}),
-                "face_restore_blend": ("FLOAT", {"default": 0.5, "min": 0.0, "max": 1.0, "step": 0.05}),
+                "face_restore_blend": ("FLOAT", {"default": 0.3, "min": 0.0, "max": 1.0, "step": 0.05}),
                 
                 # --- GROUP: VRAM ---
                 "grp_vram_optimization": (["▼ VRAM"], {}),
@@ -458,6 +458,7 @@ class FilmAuteur_LTXV:
 
             system_prompt = """You write prompts for LTX Video. Output one single flowing paragraph only — no preamble, no label, no explanation, no markdown, no variations. Begin writing immediately.
 I will provide you with a base prompt and a single reference image collage containing the Subject, Object, and/or Location. Your job is to seamlessly combine them into a single, highly detailed, flowing paragraph.
+Do not describe the initial pose or orientation of the subject from the reference image - only if included in user prompt.
 
 CORE FORMAT:
 - Single flowing paragraph, present tense, no line breaks
@@ -1391,7 +1392,11 @@ Output only the prompt. Nothing before it, nothing after it."""
                 x0_output = {}
                 callback = latent_preview.prepare_callback(guider.model_patcher, sigmas.shape[-1] - 1, x0_output)
                 
-                sampled_chunk = guider.sample(noise_obj.generate_noise(current_latent_tile), latent_image_tile, sampler, sigmas, denoise_mask=current_latent_tile["noise_mask"], callback=callback, disable_pbar=disable_pbar, seed=noise_seed)
+                # --- NOISE DRIFT FIX: Dynamically increment the seed per chunk! ---
+                chunk_noise_seed = noise_seed + chunk_idx
+                chunk_noise_obj = Noise_RandomNoise(chunk_noise_seed)
+                
+                sampled_chunk = guider.sample(chunk_noise_obj.generate_noise(current_latent_tile), latent_image_tile, sampler, sigmas, denoise_mask=current_latent_tile["noise_mask"], callback=callback, disable_pbar=disable_pbar, seed=chunk_noise_seed)
                 sampled_v_tile = sampled_chunk.unbind()[0].to(device)
 
                 # 3. Stitch into Global Tensor
