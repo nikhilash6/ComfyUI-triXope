@@ -38,12 +38,12 @@ app.registerExtension({
                 this.properties = this.properties || {};
 
                 const groupDefinitions = [
-                    { btnName: "grp_input_controls", label: "Input", widgets: ["bypass_img_ref", "bypass_first_frame", "load_audio_from_file", "bypass_audio_ref", "image_ref_str", "first_frame_str", "identity_guidance_scale"] },
-                    { btnName: "grp_ollama_enhance", label: "Enhance", widgets: ["use_ollama", "ollama_url", "ollama_model"] },
-                    { btnName: "grp_timeline_controls", label: "Timeline", widgets: ["noise_seed", "control_after_generate", "target_width", "target_height", "length_in_seconds", "frame_rate"] },
-                    { btnName: "grp_sampling", label: "Sampling", widgets: ["sampling_stages", "primary_sampler_name", "primary_cfg", "primary_steps", "upsample_sampler_name", "upsample_cfg", "upsample_manual_sigmas", "eta", "bongmath", "autoregressive_chunking", "chunk_size_seconds", "context_window_seconds"] },
-                    { btnName: "grp_refinement", label: "Refinement", widgets: ["temporal_upscale", "restore_faces", "facerestore_model", "facedetection", "codeformer_fidelity", "face_restore_color_match", "face_restore_edge_blur", "face_restore_blend"] },
-                    { btnName: "grp_vram_optimization", label: "VRAM", widgets: ["enable_fp16_accumulation", "sage_attention", "chunks"] }
+                    { btnName: "grp_input_controls", label: "Manual Bypass", widgets: ["bypass_img_ref", "bypass_first_frame", "load_audio_from_file", "bypass_audio_ref", "image_ref_str", "first_frame_str", "identity_guidance_scale"] },
+                    { btnName: "grp_ollama_enhance", label: "LLM Enhance", widgets: ["use_ollama", "ollama_url", "ollama_model"] },
+                    { btnName: "grp_timeline_controls", label: "Timeline Control", widgets: ["noise_seed", "control_after_generate", "target_width", "target_height", "length_in_seconds", "frame_rate"] },
+                    { btnName: "grp_sampling", label: "Sampling Config", widgets: ["sampling_stages", "primary_sampler_name", "primary_cfg", "primary_steps", "upsample_sampler_name", "upsample_cfg", "upsample_manual_sigmas", "eta", "bongmath", "autoregressive_chunking", "chunk_size_seconds", "context_window_seconds"] },
+                    { btnName: "grp_refinement", label: "Upscale & Refine", widgets: ["temporal_upscale", "restore_faces", "facerestore_model", "facedetection", "codeformer_fidelity", "face_restore_color_match", "face_restore_edge_blur", "face_restore_blend"] },
+                    { btnName: "grp_vram_optimization", label: "VRAM Optimization", widgets: ["enable_fp16_accumulation", "sage_attention", "chunks"] }
                 ];
 
                 const WIDGET_TOOLTIPS = {
