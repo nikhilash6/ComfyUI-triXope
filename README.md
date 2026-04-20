@@ -28,6 +28,7 @@ What the node does/features:
 • Face restoration to help with cleaning up faces and removing artifacts (place face restore model with .pt or .pth file extension in "facerestore_models" folder (eg. <a href="https://huggingface.co/models?search=codeformer">codeformer</a>, <a href="https://huggingface.co/models?search=gfpgan">GFPGAN</a>, etc.)) <br>
 • Built-in sageattention and fp16 accumulation (must be installed to use) <br>
 • Built in chunk feed forward (to assist in computational efficiency) <br>
+• Built in stage 1 preview <br>
 
 Note: Refer to the tooltips for important information.
 
