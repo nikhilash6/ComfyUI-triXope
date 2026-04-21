@@ -38,18 +38,18 @@ app.registerExtension({
                 this.properties = this.properties || {};
 
                 const groupDefinitions = [
-                    { btnName: "grp_input_controls", label: "Manual Bypass", widgets: ["image_select", "image_strength", "audio_select", "identity_guidance_scale"] },
+                    { btnName: "grp_input_controls", label: "Mode Select", widgets: ["image_select", "image_strength", "audio_select", "identity_guidance_scale"] },
                     { btnName: "grp_ollama_enhance", label: "LLM Enhance", widgets: ["use_ollama", "ollama_url", "ollama_model"] },
                     { btnName: "grp_timeline_controls", label: "Timeline Control", widgets: ["noise_seed", "control_after_generate", "target_width", "target_height", "length_in_seconds", "frame_rate"] },
                     { btnName: "grp_sampling", label: "Sampling Config", widgets: ["sampling_stages", "primary_sampler_name", "primary_cfg", "primary_steps", "upsample_sampler_name", "upsample_cfg", "upsample_manual_sigmas", "eta", "bongmath", "autoregressive_chunking", "chunk_size_seconds", "context_window_seconds"] },
                     { btnName: "grp_refinement", label: "Upscale & Refine", widgets: ["temporal_upscale", "restore_faces", "facerestore_model", "facedetection", "codeformer_fidelity", "face_restore_color_match", "face_restore_edge_blur", "face_restore_blend"] },
-                    { btnName: "grp_vram_optimization", label: "VRAM Optimization", widgets: ["enable_fp16_accumulation", "sage_attention", "chunks"] }
+                    { btnName: "grp_vram_optimization", label: "VRAM Optimization", widgets: ["enable_fp16_accumulation", "sage_attention", "chunks", "clear_models_and_cache"] }
                 ];
 
                 const WIDGET_TOOLTIPS = {
-                    "image_select": "none: generates from prompt only.\nimage: uses image as the first frame.\nreference: uses image globally as a style/concept reference.",
+                    "image_select": "text-to-video: generates from prompt only.\nimage-to-video: uses image as the first frame.\nreference-to-video: uses image globally as a style/concept reference.",
                     "image_strength": "Strength of the image conditioning. Values over 1.0 may cause artifacts or burning.",
-                    "audio_select": "internal: uses LTX native generated audio.\ninput audio: encodes the provided audio track.\ninput audio as reference: uses audio for ID-LoRA voice guidance.",
+                    "audio_select": "internal: uses LTX native generated audio.\ninput source audio: encodes the provided audio track.\ninput reference audio: uses audio for ID-LoRA voice guidance.",
                     "identity_guidance_scale": "Strength of identity guidance for ID-LoRA.",
                     "use_ollama": "Use local Ollama to visually describe inputs and revamp the prompt.",
                     "length_in_seconds": "Total video length in seconds. Note: length_in_seconds must be evenly divisible by total number of shots.",
@@ -71,7 +71,8 @@ app.registerExtension({
                     "enable_fp16_accumulation": "Enable torch.backends.cuda.matmul.allow_fp16_accumulation.",
                     "sage_attention": "Patch comfy attention to use sageattn.",
                     "chunks": "Number of chunks to split the feedforward activations into to reduce peak VRAM usage.",
-                    "stage_1_preview": "Enable or disable the animated preview after the first processing stage.",
+                    "clear_models_and_cache": "Frees up VRAM by forcefully unloading models and emptying the cache at the end of the generation.",
+                    "stage_1_preview": "Enable or disable the animated preview after the first processing stage."
                 };
 
                 const toggleWidget = (w, visible) => {
