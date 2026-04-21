@@ -11,7 +11,7 @@ At first glance, I'm sure the node looks overwhelming, with so much packed into 
 
 # Nodes
 
-Film Auteur (LTXV) - one node to rule them all. <br>
+<u>Film Auteur (LTXV)</u> - one node to rule them all. <br>
 &emsp;• Text-to-Video <br>
 &emsp;• Image-to-Video <br>
 &emsp;• Image Reference-to-Video (experimental work-in-progress) <br>
