@@ -1,19 +1,15 @@
-THIS COLLECTION IS A WORK-IN-PROGRESS
-Don't expect everything to function perfectly.
-Please check back frequently as I am making constant updates and improvements...
+# WORK-IN-PROGRESS
+Don't expect everything to function perfectly. <br>
+Please check back frequently as I am making constant updates and improvements... <br>
+Here you will find a collection of custom nodes for ComfyUI with the intent of enhancing your film production workflow. <br><br>
+Let me preface by saying that I am not a developer by trade, nor do I have a background in programming. I come from a traditional filmmaking background, with my focus being writing, directing, and cinematography. <br>
+With that said, I have been following the AI scene for quite some time now, working behind the scene on ways to implement AI into my own personal workflow and finding ways to utilize it as a tool, rather than try to fight it's constant progression - a battle that we cannot win. <br><br>
+The current highlight of this collection is a massive LTXV all-in-one node, Film Auteur (LTXV), which was designed with LTX 2.3 as the backbone. <br>
+What started off as a simple idea to create a node for injecting reference images into LTX quickly became a highly ambitious project. <br>
+It's not perfect, but it works. <br>
+At first glance, I'm sure the node looks overwhelming, with so much packed into it, but I assure you it's really not that bad, and can easily be broken down into sections to better understand it. <br>
 
-Here you will find a collection of custom nodes for ComfyUI with the intent of enhancing your film production workflow.
-
-Let me preface by saying that I am not a developer by trade, nor do I have a background in programming. I come from a traditional filmmaking background, with my focus being writing, directing, and cinematography.
-
-With that said, I have been following the AI scene for quite some time now, working behind the scene on ways to implement AI into my own personal workflow and finding ways to utilize it as a tool, rather than try to fight it's constant progression - a battle that we cannot win.
-
-The current highlight of this collection is a massive LTXV all-in-one node, Film Auteur (LTXV), which was designed with LTX 2.3 as the backbone.
-What started off as a simple idea to create a node for injecting reference images into LTX quickly became a highly ambitious project.
-It's not perfect, but it works.
-At first glance, I'm sure the node looks overwhelming, with so much packed into it, but I assure you it's really not that bad, and can easily be broken down into sections to better understand it.
-
-What the node does/features:
+# What's Included
 
 • Text-to-Video <br>
 • Image-to-Video <br>
@@ -32,13 +28,11 @@ What the node does/features:
 • Built in chunk feed forward (to assist in computational efficiency) <br>
 • Built in stage 1 preview <br>
 
-Note: Refer to the tooltips for important information.
-
-Just plug in your models, optional reference images and/or audio, set your desired paramerters, send it out to your preferred video save or combine node, and you're good-to-go.
-
-More nodes coming soon...
+Note: Refer to the tooltips for important information. <br><br>
+Just plug in your models, optional reference images and/or audio, set your desired paramerters, send it out to your preferred video save or combine node, and you're good-to-go. <br><br>
+More nodes coming soon... <br><br>
 
 # Installation
-1. cd custom_nodes
-2. git clone https://github.com/triXope/ComfyUI-triXope.git
-3. Restart ComfyUI
+1. cd custom_nodes <br>
+2. git clone https://github.com/triXope/ComfyUI-triXope.git <br>
+3. Restart ComfyUI <br>
