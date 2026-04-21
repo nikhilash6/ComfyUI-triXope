@@ -39,3 +39,12 @@ More nodes coming soon...<br>
 1. cd custom_nodes<br>
 2. git clone https://github.com/triXope/ComfyUI-triXope.git<br>
 3. Restart ComfyUI<br>
+
+# Road Map
+Future plans for Film Auteur (LTXV)<br>
+- Real-time ETA counter<br>
+- add optional positive and negative inputs that, when connected, will override the internal prompting<br>
+- LTXV Add Guide (for improved subject consistency)<br>
+- LTXV Add Video IC-LoRA Guide<br>
+- possible multi pass without spatial upscaler<br>
+- FFLF<br>
