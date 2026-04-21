@@ -9,8 +9,9 @@ What started off as a simple idea to create a node for injecting reference image
 It's not perfect, but it works. <br>
 At first glance, I'm sure the node looks overwhelming, with so much packed into it, but I assure you it's really not that bad, and can easily be broken down into sections to better understand it. <br>
 
-# What's Included
+# Nodes
 
+Film Auteur (LTXV) - one node to rule them all.
 • Text-to-Video <br>
 • Image-to-Video <br>
 • Image Reference-to-Video (experimental work-in-progress) <br>
