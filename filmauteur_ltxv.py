@@ -388,6 +388,14 @@ class FilmAuteur_LTXV:
         # 1.5 DIRECTOR MODE OVERRIDE
         # ==========================================
         if num_prompts > 1:
+            # Auto-round the timeline so every shot gets an exact, even whole-number duration!
+            shot_duration_int = max(1, round(length_in_seconds / num_prompts))
+            ideal_length = float(shot_duration_int * num_prompts)
+            
+            if ideal_length != length_in_seconds:
+                print(f"\n--- Auto-Rounding Timeline: Adjusted total duration from {length_in_seconds}s to {ideal_length}s for perfect {shot_duration_int}s shots. ---")
+                length_in_seconds = ideal_length
+
             autoregressive_chunking = True # Force chunking if multi-shot is detected
             chunk_size_seconds = length_in_seconds / num_prompts
             print(f"\n--- Multi-Shot Director Mode Active: Timeline synced to {num_prompts} shots ({chunk_size_seconds:.2f}s per shot). ---")
@@ -918,17 +926,24 @@ Output only the prompt. Nothing before it, nothing after it."""
             primary_sigmas = torch.FloatTensor([float(i) for i in sigmas_list])
         else:
             try:
-                p_steps = int(primary_steps)
+                # Casts to float first to safely handle decimals like "16.0" or spaces, then rounds to int
+                p_steps = int(float(str(primary_steps).strip()))
+                p_steps = max(1, p_steps)
             except ValueError:
                 p_steps = 8
                 
-            tokens = math.prod(video_samples.shape[2:])
+            # FLOAT32 COLLAPSE FIX: The noise shift formula (x1=1024, x2=4096) is calibrated 
+            # strictly for SPATIAL tokens. Multiplying temporal frames (shape[2]) into this caused 
+            # the shift exponent to become so massive it destroyed the Float32 mantissa, rounding 
+            # your early steps to 1.0 and deleting them!
+            spatial_tokens = math.prod(video_samples.shape[3:])
+            
             sigmas = torch.linspace(1.0, 0.0, p_steps + 1)
             max_shift, base_shift, terminal = 2.05, 0.95, 0.1
             x1, x2 = 1024, 4096
             mm_shift = (max_shift - base_shift) / (x2 - x1)
             b_shift = base_shift - mm_shift * x1
-            sigma_shift = (tokens) * mm_shift + b_shift
+            sigma_shift = (spatial_tokens) * mm_shift + b_shift
 
             power = 1
             sigmas = torch.where(sigmas != 0, math.exp(sigma_shift) / (math.exp(sigma_shift) + (1 / sigmas - 1) ** power), 0)
