@@ -215,14 +215,11 @@ class FilmAuteur_LTXV:
                 "location_description": ("STRING", {"multiline": True, "dynamicPrompts": True, "default": "", "tooltip": "Provide a detailed description of the location(s)."}),
                 "scene_descriptions": ("STRING", {"multiline": True, "dynamicPrompts": True, "default": "", "tooltip": 'Provide a detailed description for each shot, separated by "|" (eg. shot 1 | shot 2 | shot 3). Note: length_in_seconds must be evenly divisible by total number of shots.'}),
 
-                # Mode Select
-                "simple_mode_select": (mode_options, {"default": "manual", "tooltip": "Override for simplified mode select."}),
-
-                # --- GROUP: Input ---
-                "grp_input_controls": (["▼ Manual Bypass", "▼ Input"], {}),
-                "image_select": (["none", "image", "reference"], {"default": "none"}),
+                # --- GROUP: Mode Select ---
+                "grp_input_controls": (["▼ Mode Select", "▼ Manual Bypass", "▼ Input"], {}),
+                "image_select": (["text-to-video", "image-to-video", "reference-to-video"], {"default": "text-to-video"}),
                 "image_strength": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 3.0, "step": 0.05}),
-                "audio_select": (["internal", "input audio", "input audio as reference"], {"default": "internal"}),
+                "audio_select": (["internal", "input source audio", "input reference audio"], {"default": "internal"}),
                 "identity_guidance_scale": ("FLOAT", {"default": 3.0, "min": 0.0, "max": 100.0, "step": 0.01}),
 
                 # --- GROUP: Enhance ---
@@ -247,7 +244,7 @@ class FilmAuteur_LTXV:
                 "primary_steps": ("STRING", {"multiline": False, "default": "1.0, 0.995, 0.99, 0.9875, 0.975, 0.65, 0.28, 0.07, 0.0"}),
                 "upsample_sampler_name": (sampler_names, {"default": upsample_default}),
                 "upsample_cfg": ("FLOAT", {"default": 1.5, "min": 0.0, "max": 100.0, "step": 0.1, "round": 0.01}),
-                "upsample_manual_sigmas": ("STRING", {"multiline": False, "default": "0.55, 0.35, 0.15, 0.0"}), # <--- UPDATED DEFAULT
+                "upsample_manual_sigmas": ("STRING", {"multiline": False, "default": "0.55, 0.35, 0.15, 0.0"}),
                 "eta": ("FLOAT", {"default": 0.95, "min": -100.0, "max": 100.0, "step": 0.01, "round": False}),
                 "bongmath": ("BOOLEAN", {"default": True}),
                 "autoregressive_chunking": ("BOOLEAN", {"default": True}),
@@ -270,6 +267,8 @@ class FilmAuteur_LTXV:
                 "enable_fp16_accumulation": ("BOOLEAN", {"default": False}),
                 "sage_attention": (sageattn_modes, {"default": "disabled"}),
                 "chunks": ("INT", {"default": 4, "min": 1, "max": 100, "step": 1}),
+                "clear_models_and_cache": ("BOOLEAN", {"default": True}),
+
                 "stage_1_preview": ("BOOLEAN", {"default": True}),
             },
             "optional": {
@@ -288,7 +287,7 @@ class FilmAuteur_LTXV:
     CATEGORY = "triXope"
 
     def process(self, clip, video_vae, audio_vae, primary_model, character_descriptions, location_description, scene_descriptions, 
-                simple_mode_select, image_select, image_strength, audio_select, identity_guidance_scale,
+                image_select, image_strength, audio_select, identity_guidance_scale,
                 use_ollama, ollama_url, ollama_model,
                 noise_seed, target_width, target_height, length_in_seconds, frame_rate, 
                 sampling_stages, primary_sampler_name, primary_cfg, primary_steps, 
@@ -296,44 +295,13 @@ class FilmAuteur_LTXV:
                 autoregressive_chunking, chunk_size_seconds, context_window_seconds, temporal_upscale, 
                 restore_faces, facerestore_model, facedetection, codeformer_fidelity, 
                 face_restore_color_match, face_restore_edge_blur, face_restore_blend,
-                enable_fp16_accumulation, sage_attention, chunks, stage_1_preview,
+                enable_fp16_accumulation, sage_attention, chunks, clear_models_and_cache, stage_1_preview,
                 model2_opt=None, spatial_upscaler=None, temporal_upscaler=None, 
                 images=None, audio=None, unique_id=None, **kwargs):
 
-        # ==========================================
-        # 0. MODE OVERRIDES
-        # ==========================================
-        if simple_mode_select == "debug/testing":
-            sampling_stages = 1
-            target_width = max(64, target_width // 4)
-            target_height = max(64, target_height // 4)
-            length_in_seconds = 5.0
-            primary_sampler_name = "euler"
-            temporal_upscale = False
-            restore_faces = False
-            use_ollama = False
-        elif simple_mode_select == "text-to-video":
-            image_select = "none"
-            audio_select = "internal"
-        elif simple_mode_select == "text-to-video (+ audio in)":
-            image_select = "none"
-            audio_select = "input audio"
-        elif simple_mode_select == "image-to-video":
-            image_select = "image"
-            audio_select = "internal"
-        elif simple_mode_select == "image-to-video (+ audio in)":
-            image_select = "image"
-            audio_select = "input audio"
-        elif simple_mode_select == "reference-to-video (+ audio ref)":
-            image_select = "reference"
-            audio_select = "input audio as reference"
-        elif simple_mode_select == "reference-to-video (+ audio in)":
-            image_select = "reference"
-            audio_select = "input audio"
-
         # --- MAP TO INTERNAL VARIABLES TO PRESERVE ALL MATH ---
-        bypass_img_ref = (image_select != "reference")
-        bypass_first_frame = (image_select != "image")
+        bypass_img_ref = (image_select != "reference-to-video")
+        bypass_first_frame = (image_select != "image-to-video")
         
         image_ref = images if not bypass_img_ref else None
         first_frame = images if not bypass_first_frame else None
@@ -345,10 +313,10 @@ class FilmAuteur_LTXV:
         if audio_select == "internal":
             load_audio_from_file = False
             bypass_audio_ref = True
-        elif audio_select == "input audio":
+        elif audio_select == "input source audio":
             load_audio_from_file = True
             bypass_audio_ref = True
-        elif audio_select == "input audio as reference":
+        elif audio_select == "input reference audio":
             load_audio_from_file = False
             bypass_audio_ref = False
         else:
@@ -1822,17 +1790,20 @@ Output only the prompt. Nothing before it, nothing after it."""
         # ==========================================
         # 10. DEEP CACHE CLEANSE (API CALL)
         # ==========================================
-        try:
-            address = f"{PromptServer.instance.address}:{PromptServer.instance.port}"
-            requests.post(
-                f"http://{address.replace('0.0.0.0','127.0.0.1')}/api/free",
-                headers={'Content-Type': 'application/json'},
-                json={"unload_models": True, "free_memory": True},
-                timeout=10
-            )
-            print("--- Deep Cache & Models Cleared Successfully ---")
-        except Exception as e:
-            print(f"--- Deep Cache Clearance Failed: {str(e)} ---")
+        if clear_models_and_cache:
+            try:
+                address = f"{PromptServer.instance.address}:{PromptServer.instance.port}"
+                requests.post(
+                    f"http://{address.replace('0.0.0.0','127.0.0.1')}/api/free",
+                    headers={'Content-Type': 'application/json'},
+                    json={"unload_models": True, "free_memory": True},
+                    timeout=10
+                )
+                print("--- Deep Cache & Models Cleared Successfully ---")
+            except Exception as e:
+                print(f"--- Deep Cache Clearance Failed: {str(e)} ---")
+        else:
+            print("--- Deep Cache Clearance Bypassed ---")
 
         return (final_prompt_string_out, final_latent, video_out_latent, audio_out_latent, out_video, out_image, out_audio, float(current_fps), out_ref_frame_count)
 
