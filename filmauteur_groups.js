@@ -38,7 +38,7 @@ app.registerExtension({
                 this.properties = this.properties || {};
 
                 const groupDefinitions = [
-                    { btnName: "grp_input_controls", label: "Manual Bypass", widgets: ["bypass_img_ref", "bypass_first_frame", "load_audio_from_file", "bypass_audio_ref", "image_ref_str", "first_frame_str", "identity_guidance_scale"] },
+                    { btnName: "grp_input_controls", label: "Manual Bypass", widgets: ["image_select", "image_strength", "audio_select", "identity_guidance_scale"] },
                     { btnName: "grp_ollama_enhance", label: "LLM Enhance", widgets: ["use_ollama", "ollama_url", "ollama_model"] },
                     { btnName: "grp_timeline_controls", label: "Timeline Control", widgets: ["noise_seed", "control_after_generate", "target_width", "target_height", "length_in_seconds", "frame_rate"] },
                     { btnName: "grp_sampling", label: "Sampling Config", widgets: ["sampling_stages", "primary_sampler_name", "primary_cfg", "primary_steps", "upsample_sampler_name", "upsample_cfg", "upsample_manual_sigmas", "eta", "bongmath", "autoregressive_chunking", "chunk_size_seconds", "context_window_seconds"] },
@@ -47,11 +47,9 @@ app.registerExtension({
                 ];
 
                 const WIDGET_TOOLTIPS = {
-                    "bypass_img_ref": "Bypass the image reference.",
-                    "bypass_first_frame": "Bypass the first frame (for image-to-video).",
-                    "load_audio_from_file": "Load audio from a file source.",
-                    "bypass_audio_ref": "Ignores the audio_ref input.",
-                    "image_ref_str": "Strength of the image_ref batch. Values over 1.0 may cause artifacts or burning.",
+                    "image_select": "text-to-video: generates from prompt only.\nimage-to-video: uses image as the first frame.\nreference-to-video: uses image globally as a style/concept reference.",
+                    "image_strength": "Strength of the image conditioning. Values over 1.0 may cause artifacts or burning.",
+                    "audio_select": "internal: uses LTX native generated audio.\ninput audio: encodes the provided audio track.\ninput audio as reference: uses audio for ID-LoRA voice guidance.",
                     "identity_guidance_scale": "Strength of identity guidance for ID-LoRA.",
                     "use_ollama": "Use local Ollama to visually describe inputs and revamp the prompt.",
                     "length_in_seconds": "Total video length in seconds. Note: length_in_seconds must be evenly divisible by total number of shots.",
@@ -195,6 +193,7 @@ api.addEventListener("trixope_ltxv_preview", (event) => {
             videoEl.controls = true; 
             videoEl.autoplay = true;
             videoEl.loop = true;
+            videoEl.muted = true;
             
             previewWidget = node.addDOMWidget("stage1_preview", "preview", videoEl, {
                 serialize: false,
