@@ -38,7 +38,7 @@ Just plug in your models, optional reference images and/or audio, set your desir
 
 More nodes coming soon...
 
-Installation
+# Installation
 1. cd custom_nodes
 2. git clone https://github.com/triXope/ComfyUI-triXope.git
 3. Restart ComfyUI
