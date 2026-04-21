@@ -220,7 +220,7 @@ class FilmAuteur_LTXV:
 
                 # --- GROUP: Input ---
                 "grp_input_controls": (["▼ Manual Bypass", "▼ Input"], {}),
-                "image_select": (["text-to-video", "image-to-video", "reference-to-video"], {"default": "text-to-video"}),
+                "image_select": (["none", "image", "reference"], {"default": "none"}),
                 "image_strength": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 3.0, "step": 0.05}),
                 "audio_select": (["internal", "input audio", "input audio as reference"], {"default": "internal"}),
                 "identity_guidance_scale": ("FLOAT", {"default": 3.0, "min": 0.0, "max": 100.0, "step": 0.01}),
@@ -313,27 +313,27 @@ class FilmAuteur_LTXV:
             restore_faces = False
             use_ollama = False
         elif simple_mode_select == "text-to-video":
-            image_select = "text-to-video"
+            image_select = "none"
             audio_select = "internal"
         elif simple_mode_select == "text-to-video (+ audio in)":
-            image_select = "text-to-video"
+            image_select = "none"
             audio_select = "input audio"
         elif simple_mode_select == "image-to-video":
-            image_select = "image-to-video"
+            image_select = "image"
             audio_select = "internal"
         elif simple_mode_select == "image-to-video (+ audio in)":
-            image_select = "image-to-video"
+            image_select = "image"
             audio_select = "input audio"
         elif simple_mode_select == "reference-to-video (+ audio ref)":
-            image_select = "reference-to-video"
+            image_select = "reference"
             audio_select = "input audio as reference"
         elif simple_mode_select == "reference-to-video (+ audio in)":
-            image_select = "reference-to-video"
+            image_select = "reference"
             audio_select = "input audio"
 
         # --- MAP TO INTERNAL VARIABLES TO PRESERVE ALL MATH ---
-        bypass_img_ref = (image_select != "reference-to-video")
-        bypass_first_frame = (image_select != "image-to-video")
+        bypass_img_ref = (image_select != "reference")
+        bypass_first_frame = (image_select != "image")
         
         image_ref = images if not bypass_img_ref else None
         first_frame = images if not bypass_first_frame else None
