@@ -47,7 +47,7 @@ app.registerExtension({
                 ];
 
                 const WIDGET_TOOLTIPS = {
-                    "image_select": "text-to-video: generates from prompt only.\nimage-to-video: uses image as the first frame.\nreference-to-video: uses image globally as a style/concept reference.",
+                    "image_select": "none: generates from prompt only.\nimage: uses image as the first frame.\nreference: uses image globally as a style/concept reference.",
                     "image_strength": "Strength of the image conditioning. Values over 1.0 may cause artifacts or burning.",
                     "audio_select": "internal: uses LTX native generated audio.\ninput audio: encodes the provided audio track.\ninput audio as reference: uses audio for ID-LoRA voice guidance.",
                     "identity_guidance_scale": "Strength of identity guidance for ID-LoRA.",
