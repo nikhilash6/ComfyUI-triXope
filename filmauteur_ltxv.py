@@ -932,18 +932,31 @@ Output only the prompt. Nothing before it, nothing after it."""
             except ValueError:
                 p_steps = 8
                 
-            # FLOAT32 COLLAPSE FIX: The noise shift formula (x1=1024, x2=4096) is calibrated 
-            # strictly for SPATIAL tokens. Multiplying temporal frames (shape[2]) into this caused 
-            # the shift exponent to become so massive it destroyed the Float32 mantissa, rounding 
-            # your early steps to 1.0 and deleting them!
-            spatial_tokens = math.prod(video_samples.shape[3:])
+            # RESTORED QUALITY FIX: We MUST bring temporal frames back into the math! 
+            # LTX-Video relies on the massive token count of video to push the noise shift higher.
+            # Dropping this to spatial-only caused the video to be severely under-denoised (muddy/faded).
+            if autoregressive_chunking:
+                active_sec = min(length_in_seconds, chunk_size_seconds + context_window_seconds)
+            else:
+                active_sec = length_in_seconds
+                
+            pass_frames = int((active_sec * current_fps) + 1)
+            pass_latents = ((pass_frames - 1) // 8) + 1
+            active_tokens = pass_latents * (initial_height // 32) * (initial_width // 32)
             
             sigmas = torch.linspace(1.0, 0.0, p_steps + 1)
             max_shift, base_shift, terminal = 2.05, 0.95, 0.1
             x1, x2 = 1024, 4096
             mm_shift = (max_shift - base_shift) / (x2 - x1)
             b_shift = base_shift - mm_shift * x1
-            sigma_shift = (spatial_tokens) * mm_shift + b_shift
+            
+            # Calculate the massive shift required for deep, rich contrast
+            sigma_shift = (active_tokens) * mm_shift + b_shift
+            
+            # THE TRUE FLOAT32 FIX: Instead of neutering the tokens, we clamp the final exponent to 13.5!
+            # exp(13.5) is ~730,000. Anything higher than this exceeds Float32's 7-decimal mantissa limit 
+            # and starts rounding your steps to 1.0 (deleting them).
+            sigma_shift = min(sigma_shift, 13.5)
 
             power = 1
             sigmas = torch.where(sigmas != 0, math.exp(sigma_shift) / (math.exp(sigma_shift) + (1 / sigmas - 1) ** power), 0)
