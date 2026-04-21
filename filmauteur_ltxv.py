@@ -1453,6 +1453,14 @@ Output only the prompt. Nothing before it, nothing after it."""
 
             temporal_sigmas = torch.FloatTensor([0.65, 0.35, 0.12, 0.0])
             
+            # --- SYNC FIX: Update the UNet conditioning to the new doubled framerate! ---
+            # If we don't do this, the UNet sees 2x latents at 24fps and stretches the motion 
+            # out to 2x the duration, completely ruining the lip-sync!
+            for i in range(len(final_positive)):
+                final_positive[i][1]["frame_rate"] = float(current_fps * 2)
+            for i in range(len(final_negative)):
+                final_negative[i][1]["frame_rate"] = float(current_fps * 2)
+            
             global_v_samps_up = process_sliding_window_upscale(
                 pass_name="Temporal Upscale Pass",
                 is_temporal=True, v_samps=v_samps, a_samps=a_samps,
