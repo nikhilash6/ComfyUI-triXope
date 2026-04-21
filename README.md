@@ -1,5 +1,5 @@
 # WORK-IN-PROGRESS
-NOTICE: In it's current state (as of 4/21/2026), everything appears to be functioning properly. The main focus is currently on tightening up image reference-to-video which, in it's current state, is hit-or-miss.<br><br>
+NOTICE: In it's current state (as of 4/21/2026), Film Auteur (LTXV) appears to be functioning properly. The main focus is currently on tightening up image reference-to-video which, in it's current state, is hit-or-miss.<br><br>
 Don't expect everything to function perfectly.<br>
 Please check back frequently as I am making constant updates and improvements...<br><br>
 Here you will find a collection of custom nodes for ComfyUI with the intent of enhancing your film production workflow.<br><br>
