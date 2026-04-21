@@ -1,3 +1,5 @@
+THIS COLLECTION IS A WORK-IN-PROGRESS
+Don't expect everything to function perfectly.
 Please check back frequently as I am making constant updates and improvements...
 
 Here you will find a collection of custom nodes for ComfyUI with the intent of enhancing your film production workflow.
@@ -35,3 +37,8 @@ Note: Refer to the tooltips for important information.
 Just plug in your models, optional reference images and/or audio, set your desired paramerters, send it out to your preferred video save or combine node, and you're good-to-go.
 
 More nodes coming soon...
+
+Installation
+1. cd custom_nodes
+2. git clone https://github.com/triXope/ComfyUI-triXope.git
+3. Restart ComfyUI
