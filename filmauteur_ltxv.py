@@ -209,56 +209,53 @@ class FilmAuteur_LTXV:
                 "video_vae": ("VAE", {"tooltip": "The LTXV Video VAE model."}),
                 "audio_vae": ("VAE", {"tooltip": "The LTXV Audio VAE model."}),
                 "primary_model": ("MODEL", {"tooltip": "The primary LTXV Model (will be patched if ID-LoRA is active)."}),
-                
+
                 # Prompts
                 "character_descriptions": ("STRING", {"multiline": True, "dynamicPrompts": True, "default": "", "tooltip": "Provide a detailed description for each character (overridden by image reference)."}),
                 "location_description": ("STRING", {"multiline": True, "dynamicPrompts": True, "default": "", "tooltip": "Provide a detailed description of the location(s)."}),
                 "scene_descriptions": ("STRING", {"multiline": True, "dynamicPrompts": True, "default": "", "tooltip": 'Provide a detailed description for each shot, separated by "|" (eg. shot 1 | shot 2 | shot 3). Note: length_in_seconds must be evenly divisible by total number of shots.'}),
-                
+
                 # Mode Select
                 "simple_mode_select": (mode_options, {"default": "manual", "tooltip": "Override for simplified mode select."}),
-                
+
                 # --- GROUP: Input ---
-                "grp_input_controls": (["▼ Input"], {}),
-                "bypass_img_ref": ("BOOLEAN", {"default": False}),
-                "bypass_first_frame": ("BOOLEAN", {"default": False}),
-                "load_audio_from_file": ("BOOLEAN", {"default": False}),
-                "bypass_audio_ref": ("BOOLEAN", {"default": False}),
-                "image_ref_str": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 3.0, "step": 0.05}),
-                "first_frame_str": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 1.0, "step": 0.05}),
+                "grp_input_controls": (["▼ Manual Bypass", "▼ Input"], {}),
+                "image_select": (["text-to-video", "image-to-video", "reference-to-video"], {"default": "text-to-video"}),
+                "image_strength": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 3.0, "step": 0.05}),
+                "audio_select": (["internal", "input audio", "input audio as reference"], {"default": "internal"}),
                 "identity_guidance_scale": ("FLOAT", {"default": 3.0, "min": 0.0, "max": 100.0, "step": 0.01}),
-                
+
                 # --- GROUP: Enhance ---
-                "grp_ollama_enhance": (["▼ Enhance"], {}),
+                "grp_ollama_enhance": (["▼ LLM Enhance"], {}),
                 "use_ollama": ("BOOLEAN", {"default": False}),
                 "ollama_url": ("STRING", {"default": "http://127.0.0.1:11434"}),
                 "ollama_model": (OLLAMA_MODELS,),
-                
+
                 # --- GROUP: Timeline ---
-                "grp_timeline_controls": (["▼ Timeline"], {}),
+                "grp_timeline_controls": (["▼ Timeline Control"], {}),
                 "noise_seed": ("INT", {"default": 0, "min": 0, "max": 0xffffffffffffffff}),
                 "target_width": ("INT", {"default": 1792, "min": 64, "max": 8192, "step": 32}),
                 "target_height": ("INT", {"default": 768, "min": 64, "max": 8192, "step": 32}),
                 "length_in_seconds": ("FLOAT", {"default": 5.0, "min": 0.1, "max": 300.0, "step": 0.1}),
                 "frame_rate": ("FLOAT", {"default": 24.0, "min": 1.0, "max": 120.0, "step": 1.0}),
-                
+
                 # --- GROUP: Sampling ---
-                "grp_sampling": (["▼ Sampling"], {}),
+                "grp_sampling": (["▼ Sampling Config"], {}),
                 "sampling_stages": ("INT", {"default": 2, "min": 1, "max": 3}),
                 "primary_sampler_name": (sampler_names, {"default": primary_default}),
                 "primary_cfg": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 100.0, "step": 0.1, "round": 0.01}),
                 "primary_steps": ("STRING", {"multiline": False, "default": "1.0, 0.995, 0.99, 0.9875, 0.975, 0.65, 0.28, 0.07, 0.0"}),
                 "upsample_sampler_name": (sampler_names, {"default": upsample_default}),
                 "upsample_cfg": ("FLOAT", {"default": 1.5, "min": 0.0, "max": 100.0, "step": 0.1, "round": 0.01}),
-                "upsample_manual_sigmas": ("STRING", {"multiline": False, "default": "0.55, 0.35, 0.15, 0.0"}),
+                "upsample_manual_sigmas": ("STRING", {"multiline": False, "default": "0.55, 0.35, 0.15, 0.0"}), # <--- UPDATED DEFAULT
                 "eta": ("FLOAT", {"default": 0.95, "min": -100.0, "max": 100.0, "step": 0.01, "round": False}),
                 "bongmath": ("BOOLEAN", {"default": True}),
                 "autoregressive_chunking": ("BOOLEAN", {"default": True}),
-                "chunk_size_seconds": ("FLOAT", {"default": 60.0, "min": 5.0, "max": 300.0, "step": 1.0}),
+                "chunk_size_seconds": ("FLOAT", {"default": 30.0, "min": 5.0, "max": 300.0, "step": 1.0}),
                 "context_window_seconds": ("FLOAT", {"default": 10.0, "min": 0.0, "max": 300.0, "step": 1.0}),
-                
+
                 # --- GROUP: Refinement ---
-                "grp_refinement": (["▼ Refinement"], {}),
+                "grp_refinement": (["▼ Upscale & Refine"], {}),
                 "temporal_upscale": ("BOOLEAN", {"default": False}),
                 "restore_faces": ("BOOLEAN", {"default": False}),
                 "facerestore_model": (get_trixope_facerestore_models(), {}),
@@ -267,22 +264,20 @@ class FilmAuteur_LTXV:
                 "face_restore_color_match": ("BOOLEAN", {"default": True}),
                 "face_restore_edge_blur": ("BOOLEAN", {"default": True}),
                 "face_restore_blend": ("FLOAT", {"default": 0.3, "min": 0.0, "max": 1.0, "step": 0.05}),
-                
+
                 # --- GROUP: VRAM ---
-                "grp_vram_optimization": (["▼ VRAM"], {}),
+                "grp_vram_optimization": (["▼ VRAM Optimization"], {}),
                 "enable_fp16_accumulation": ("BOOLEAN", {"default": False}),
                 "sage_attention": (sageattn_modes, {"default": "disabled"}),
                 "chunks": ("INT", {"default": 4, "min": 1, "max": 100, "step": 1}),
-                "stage_1_preview": ("BOOLEAN", {"default": False}),
+                "stage_1_preview": ("BOOLEAN", {"default": True}),
             },
             "optional": {
                 "model2_opt": ("MODEL", {"tooltip": "Optional model for upsample stages 2 and 3. If disconnected, the main model is used.", "forceInput": True}),
                 "spatial_upscaler": ("LATENT_UPSCALE_MODEL", {"tooltip": "Connect the LTXV Spatial Upscale model here to upsample the video latent by 2x.", "forceInput": True}),
                 "temporal_upscaler": ("LATENT_UPSCALE_MODEL", {"tooltip": "Connect the LTXV Temporal Upscale model here to double the framerate.", "forceInput": True}),
-                "audio_input": ("AUDIO", {"tooltip": "Connect audio here to encode it directly into the latent."}),
-                "audio_ref": ("AUDIO", {"tooltip": "Voice reference for ID-LoRA (active if load_audio_from_file is False)."}),
-                "image_ref": ("IMAGE", {"tooltip": "Batch of concept images to condition the video globally."}),
-                "first_frame(s)": ("IMAGE",),
+                "images": ("IMAGE", {"tooltip": "Input image batch for image-to-video or reference-to-video."}),
+                "audio": ("AUDIO", {"tooltip": "Connect audio here to encode it directly or use it as a voice reference for ID-LoRA."}),
             },
             "hidden": {"unique_id": "UNIQUE_ID"}
         }
@@ -293,8 +288,7 @@ class FilmAuteur_LTXV:
     CATEGORY = "triXope"
 
     def process(self, clip, video_vae, audio_vae, primary_model, character_descriptions, location_description, scene_descriptions, 
-                simple_mode_select, bypass_img_ref, bypass_first_frame, load_audio_from_file, bypass_audio_ref,
-                image_ref_str, first_frame_str, identity_guidance_scale,
+                simple_mode_select, image_select, image_strength, audio_select, identity_guidance_scale,
                 use_ollama, ollama_url, ollama_model,
                 noise_seed, target_width, target_height, length_in_seconds, frame_rate, 
                 sampling_stages, primary_sampler_name, primary_cfg, primary_steps, 
@@ -304,7 +298,7 @@ class FilmAuteur_LTXV:
                 face_restore_color_match, face_restore_edge_blur, face_restore_blend,
                 enable_fp16_accumulation, sage_attention, chunks, stage_1_preview,
                 model2_opt=None, spatial_upscaler=None, temporal_upscaler=None, 
-                audio_input=None, audio_ref=None, image_ref=None, unique_id=None,**kwargs):
+                images=None, audio=None, unique_id=None, **kwargs):
 
         # ==========================================
         # 0. MODE OVERRIDES
@@ -319,45 +313,55 @@ class FilmAuteur_LTXV:
             restore_faces = False
             use_ollama = False
         elif simple_mode_select == "text-to-video":
-            bypass_img_ref = True
-            bypass_first_frame = True
-            load_audio_from_file = False
-            bypass_audio_ref = True
+            image_select = "text-to-video"
+            audio_select = "internal"
         elif simple_mode_select == "text-to-video (+ audio in)":
-            bypass_img_ref = True
-            bypass_first_frame = True
-            load_audio_from_file = True
-            bypass_audio_ref = True
+            image_select = "text-to-video"
+            audio_select = "input audio"
         elif simple_mode_select == "image-to-video":
-            bypass_img_ref = True
-            bypass_first_frame = False
+            image_select = "image-to-video"
+            audio_select = "internal"
+        elif simple_mode_select == "image-to-video (+ audio in)":
+            image_select = "image-to-video"
+            audio_select = "input audio"
+        elif simple_mode_select == "reference-to-video (+ audio ref)":
+            image_select = "reference-to-video"
+            audio_select = "input audio as reference"
+        elif simple_mode_select == "reference-to-video (+ audio in)":
+            image_select = "reference-to-video"
+            audio_select = "input audio"
+
+        # --- MAP TO INTERNAL VARIABLES TO PRESERVE ALL MATH ---
+        bypass_img_ref = (image_select != "reference-to-video")
+        bypass_first_frame = (image_select != "image-to-video")
+        
+        image_ref = images if not bypass_img_ref else None
+        first_frame = images if not bypass_first_frame else None
+        
+        image_ref_str = image_strength
+        first_frame_str = image_strength
+
+        # --- EXPLICIT LEGACY AUDIO VARIABLE MAPPING ---
+        if audio_select == "internal":
             load_audio_from_file = False
             bypass_audio_ref = True
-        elif simple_mode_select == "image-to-video (+ audio in)":
-            bypass_img_ref = True
-            bypass_first_frame = False
+        elif audio_select == "input audio":
             load_audio_from_file = True
             bypass_audio_ref = True
-        elif simple_mode_select == "reference-to-video (+ audio ref)":
-            bypass_img_ref = False
-            bypass_first_frame = True
+        elif audio_select == "input audio as reference":
             load_audio_from_file = False
             bypass_audio_ref = False
-        elif simple_mode_select == "reference-to-video (+ audio in)":
-            bypass_img_ref = False
-            bypass_first_frame = True
-            load_audio_from_file = True
+        else:
+            load_audio_from_file = False
             bypass_audio_ref = True
 
-        first_frame = kwargs.get("first_frame(s)")
-
         current_fps = frame_rate
-        decode = True # Hardcoded to True internally 
+        decode = True 
         
         # Audio Safeguard Variables
-        has_audio_ref = not bypass_audio_ref and audio_ref is not None
-        has_audio_input = load_audio_from_file and audio_input is not None
-        
+        has_audio_ref = not bypass_audio_ref and audio is not None
+        has_audio_input = load_audio_from_file and audio is not None
+
         # Hardcoded Negative Prompt (Hidden from user)
         negative_prompt = "music, background music, soundtrack, worst quality, deformed, glitch, static, bad teeth, deformed teeth, blurry, soft focus, out of focus, smooth, plastic, washed out, hazy, illustration, painting, overexposed, underexposed, low contrast, washed out colors, excessive noise, grainy texture, poor lighting, flickering, distorted proportions, unnatural skin tones, deformed facial features, asymmetrical face, missing facial features, extra limbs, disfigured hands, wrong hand count, artifacts around text, unreadable texts, text, watermarks, 3d render, cgi"
 
@@ -378,7 +382,7 @@ class FilmAuteur_LTXV:
         divisor = 2 ** (sampling_stages - 1)
         initial_width = target_width // divisor
         initial_height = target_height // divisor
-        
+
         expected_width = (initial_width // 32) * 32
         expected_height = (initial_height // 32) * 32
 
@@ -388,7 +392,7 @@ class FilmAuteur_LTXV:
                     img.movedim(-1, 1), expected_width, expected_height, "bilinear", "center"
                 ).movedim(1, -1)
             return img
-            
+
         raw_prompts = [p.strip() for p in scene_descriptions.split("|") if p.strip()]
         num_prompts = len(raw_prompts)
         if num_prompts == 0:
@@ -401,7 +405,7 @@ class FilmAuteur_LTXV:
         override_char_desc = (not bypass_img_ref) and (image_ref is not None)
         c_desc = character_descriptions.strip()
         l_desc = location_description.strip()
-        
+
         new_prompts = []
         for p in raw_prompts:
             prefix = ""
@@ -425,7 +429,7 @@ class FilmAuteur_LTXV:
         # ==========================================
         if use_ollama:
             print(f"\n--- Querying Ollama ({ollama_model}) for Multi-Shot Enhancement ---")
-            
+
             def create_grid_b64(tensor_list):
                 pil_images = []
                 for t in tensor_list:
@@ -434,10 +438,10 @@ class FilmAuteur_LTXV:
                     pil_img = Image.fromarray(img_arr)
                     pil_img.thumbnail((512, 512), Image.Resampling.LANCZOS)
                     pil_images.append(pil_img)
-                
+
                 if not pil_images:
                     return None
-                    
+
                 num_imgs = len(pil_images)
                 if num_imgs == 1:
                     grid = pil_images[0]
@@ -451,14 +455,15 @@ class FilmAuteur_LTXV:
                         x = (i % cols) * w
                         y = (i // cols) * h
                         grid.paste(img, (x, y))
-                
+
                 buffered = BytesIO()
                 grid.save(buffered, format="JPEG", quality=85)
                 return base64.b64encode(buffered.getvalue()).decode("utf-8")
 
             system_prompt = """You write prompts for LTX Video. Output one single flowing paragraph only — no preamble, no label, no explanation, no markdown, no variations. Begin writing immediately.
 I will provide you with a base prompt and a single reference image collage containing the Subject, Object, and/or Location. Your job is to seamlessly combine them into a single, highly detailed, flowing paragraph.
-Do not describe the initial pose or orientation of the subject from the reference image - only if included in user prompt.
+Do not describe the initial pose or orientation of the subject from the reference image - only if included in the base prompt.
+Do not leave out a single detail that is included in the base prompt.
 
 CORE FORMAT:
 - Single flowing paragraph, present tense, no line breaks
@@ -519,7 +524,7 @@ cinematic, ultra-detailed, sharp focus, photorealistic, masterpiece, maintains r
 Output only the prompt. Nothing before it, nothing after it."""
 
             enhanced_prompts = []
-            
+
             for i, p in enumerate(raw_prompts):
                 tensors_to_grid = []
                 if not bypass_img_ref and image_ref is not None:
@@ -529,14 +534,14 @@ Output only the prompt. Nothing before it, nothing after it."""
                     # Dynamically map the image in the batch to the shot!
                     img_idx = min(i, first_frame.shape[0] - 1)
                     tensors_to_grid.append(first_frame[img_idx:img_idx+1])
-                
+
                 grid_b64 = create_grid_b64(tensors_to_grid) if tensors_to_grid else None
-                
+
                 user_message = {
                     "role": "user",
                     "content": f"This is Shot {i+1} of a multi-shot sequence. Base prompt: {p}\n\nAnalyze the provided reference image grid and generate the final LTX-Video prompt for this specific shot."
                 }
-                
+
                 if grid_b64:
                     user_message["images"] = [grid_b64]
 
@@ -548,7 +553,7 @@ Output only the prompt. Nothing before it, nothing after it."""
                     ],
                     "stream": False
                 }
-                
+
                 try:
                     req = urllib.request.Request(f"{ollama_url}/api/chat", data=json.dumps(payload).encode('utf-8'), headers={'Content-Type': 'application/json'})
                     with urllib.request.urlopen(req, timeout=120) as response:
@@ -570,7 +575,7 @@ Output only the prompt. Nothing before it, nothing after it."""
                 except Exception as e:
                     print(f"-> Ollama API Error: {e}. Falling back to original prompt for Shot {i+1}.")
                     enhanced_prompts.append(p)
-            
+
             prompt_list = enhanced_prompts
             print("---------------------------------------------------------")
         else:
@@ -582,7 +587,7 @@ Output only the prompt. Nothing before it, nothing after it."""
         duplicate_frames = 8  
         hidden_prefix = ""
         hidden_suffix = " Shot on 85mm lens, f/8 aperture, raw DSLR footage, ultra-sharp focus, 8k resolution, hyperrealistic, intricate details, cinematic lighting."
-        
+
         time_scale_factor, height_scale_factor, width_scale_factor = video_vae.downscale_index_formula
 
         # ==========================================
@@ -603,7 +608,7 @@ Output only the prompt. Nothing before it, nothing after it."""
             c_dict["end_percent"] = 1.0
             c_dict["frame_rate"] = current_fps 
             final_positive.append([cond, c_dict])
-            
+
         final_prompt_string_out = " | ".join(final_prompt_strings)
 
         tokens_neg = clip.tokenize(negative_prompt)
@@ -635,7 +640,7 @@ Output only the prompt. Nothing before it, nothing after it."""
             # For setup, only grab the FIRST image of the batch to start the sequence
             pixel_frames.append(first_frame_processed[0:1])
             strengths.append(first_frame_str)
-                
+
         ref_frame_count = len(strengths)
 
         if len(strengths) > 0:
@@ -647,29 +652,29 @@ Output only the prompt. Nothing before it, nothing after it."""
         # 3. EXACT FRAME MATH & BASE LATENT GENERATION
         # ==========================================
         b = length_in_seconds
-        
+
         if not bypass_img_ref:
             frame_length = int((a * duplicate_frames) + (b * current_fps) + 9)
         else:
             frame_length = int((b * current_fps) + 1)
-            
+
         device = comfy.model_management.intermediate_device()
         batch_size = 1 
 
         video_samples = torch.zeros([batch_size, 128, ((frame_length - 1) // 8) + 1, initial_height // 32, initial_width // 32], device=device)
-        
+
         # PRISTINE FIX: Apply the structural latent bias ONLY ONCE at the very beginning to prevent ghosting!
         video_samples = comfy.sample.fix_empty_latent_channels(primary_model, video_samples, None)
-        
+
         # Use exact [B, F, H, W] 4D mask sizing to completely bypass ComfyUI's 5D interpolation crash
         video_noise_mask = torch.ones((batch_size, video_samples.shape[2], video_samples.shape[3], video_samples.shape[4]), dtype=torch.float32, device=device)
 
         z_channels = audio_vae.latent_channels
         audio_freq = audio_vae.latent_frequency_bins
         sampling_rate = int(audio_vae.sample_rate)
-        
+
         num_audio_latents = audio_vae.num_of_latents_from_frames(frame_length, int(current_fps))
-        
+
         total_silence_samples = int(((frame_length / current_fps) + 5.0) * sampling_rate)
         silent_wf = torch.zeros((batch_size, 1, total_silence_samples), dtype=torch.float32, device=device)
         silent_dict = {"waveform": silent_wf, "sample_rate": sampling_rate}
@@ -707,10 +712,10 @@ Output only the prompt. Nothing before it, nothing after it."""
         else:
             region_a_frames = ref_frame_count 
             region_b_frames = duplicate_frames 
-            
+
         region_a_latents = audio_vae.num_of_latents_from_frames(region_a_frames, int(current_fps))
         setup_total_latents = audio_vae.num_of_latents_from_frames(region_a_frames + region_b_frames, int(current_fps))
-        
+
         total_samples = int((frame_length / current_fps) * sampling_rate)
         region_a_samples = int((region_a_frames / current_fps) * sampling_rate)
         setup_total_samples = int(((region_a_frames + region_b_frames) / current_fps) * sampling_rate)
@@ -729,17 +734,17 @@ Output only the prompt. Nothing before it, nothing after it."""
         target_channels = 1
         ref_wf = None
         inp_wf = None
-        
+
         if has_audio_ref:
-            ref_wf = extract_and_resample(audio_ref, sampling_rate).to(device)
+            ref_wf = extract_and_resample(audio, sampling_rate).to(device)
             target_channels = max(target_channels, ref_wf.shape[1])
-            
+
         if has_audio_input:
-            inp_wf = extract_and_resample(audio_input, sampling_rate).to(device)
+            inp_wf = extract_and_resample(audio, sampling_rate).to(device)
             target_channels = max(target_channels, inp_wf.shape[1])
-            
+
         master_wf = torch.zeros((batch_size, target_channels, total_samples), dtype=torch.float32, device=device)
-        
+
         if ref_wf is not None:
             if ref_wf.shape[0] != batch_size:
                 ref_wf = ref_wf.repeat(batch_size, 1, 1)[:batch_size]
@@ -747,7 +752,7 @@ Output only the prompt. Nothing before it, nothing after it."""
             use_samps = min(ref_wf.shape[2], region_a_samples, total_samples)
             if use_samps > 0:
                 master_wf[:, :c, :use_samps] = ref_wf[:, :, :use_samps]
-                
+
         if inp_wf is not None:
             if inp_wf.shape[0] != batch_size:
                 inp_wf = inp_wf.repeat(batch_size, 1, 1)[:batch_size]
@@ -757,20 +762,20 @@ Output only the prompt. Nothing before it, nothing after it."""
                 use_samps = min(inp_wf.shape[2], remaining_samples)
                 if use_samps > 0:
                     master_wf[:, :c, setup_total_samples:setup_total_samples+use_samps] = inp_wf[:, :, :use_samps]
-                    
+
         master_dict = {"waveform": master_wf, "sample_rate": sampling_rate}
         master_latents = audio_vae.encode(master_dict).to(device)
 
         use_len = min(num_audio_latents, master_latents.shape[2])
         if use_len > 0:
             audio_samples[:, :, :use_len, :] = master_latents[:, :, :use_len, :]
-            
+
         # Audio Safeguard: Only lock setup frames if an explicit audio ref was provided
         if has_audio_ref:
             lock_a = min(region_a_latents, use_len)
             if lock_a > 0:
                 audio_noise_mask[:, :, :lock_a, :] = 0.0
-            
+
         # Audio Safeguard: Only lock input track if explicitly provided
         if has_audio_input:
             start_c = min(setup_total_latents, use_len)
@@ -802,16 +807,16 @@ Output only the prompt. Nothing before it, nothing after it."""
             for i in range(1, num_prompts):
                 img_idx = min(i, first_frame.shape[0] - 1)
                 img = first_frame[img_idx:img_idx+1]
-                
+
                 img_scaled = comfy.utils.common_upscale(img.movedim(-1, 1), t_width, t_height, "bilinear", "center").movedim(1, -1)
                 encoded_img = video_vae.encode(img_scaled[:, :, :, :3])
                 if encoded_img.ndim == 4:
                     encoded_img = encoded_img.unsqueeze(0)
                 encoded_img = encoded_img.to(device)
-                
+
                 sec = i * shot_duration
                 v_lat, _ = get_latent_counts(sec)
-                
+
                 inject_len = min(encoded_img.shape[2], video_samples.shape[2] - v_lat)
                 if inject_len > 0:
                     video_samples[:, :, v_lat : v_lat + inject_len] = encoded_img[:, :, :inject_len]
@@ -852,8 +857,10 @@ Output only the prompt. Nothing before it, nothing after it."""
         
         model2_to_use = model2_opt.clone() if model2_opt is not None else model_to_use.clone()
         
-        if not bypass_audio_ref and audio_ref is not None:
-            audio_wf_lora = extract_and_resample(audio_ref, sampling_rate).to(device)
+        # --- ID-LORA CFG OVERRIDE (Strictly ONLY for 'input audio as reference'!) ---
+        # Standard 'input audio' must NEVER enter this block, or the CFG multiplier will destroy lip-sync timing!
+        if has_audio_ref:
+            audio_wf_lora = extract_and_resample(audio, sampling_rate).to(device)
             audio_dict_lora = {"waveform": audio_wf_lora, "sample_rate": sampling_rate}
             audio_latents_lora = audio_vae.encode(audio_dict_lora)
             
