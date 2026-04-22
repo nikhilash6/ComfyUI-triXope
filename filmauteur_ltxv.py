@@ -218,7 +218,7 @@ class FilmAuteur_LTXV:
                 # --- GROUP: Mode Select ---
                 "grp_input_controls": (["▼ Mode Select", "▼ Manual Bypass", "▼ Input"], {}),
                 "image_select": (["text-to-video", "image-to-video", "reference-to-video"], {"default": "text-to-video"}),
-                "image_strength": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 3.0, "step": 0.05}),
+                "image_strength": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 1.0, "step": 0.05}),
                 "audio_select": (["internal", "input source audio", "input reference audio"], {"default": "internal"}),
                 "identity_guidance_scale": ("FLOAT", {"default": 3.0, "min": 0.0, "max": 100.0, "step": 0.01}),
 
@@ -1303,7 +1303,8 @@ Output only the prompt. Nothing before it, nothing after it."""
                 # Dynamically generate a perfectly sized 3D mask for this exact chunk! (B, F, H, W)
                 v_mask_tile = torch.ones((v_batch, v_tile_up.shape[2], v_tile_up.shape[3], v_tile_up.shape[4]), device=device, dtype=torch.float32)
                 
-                if final_pixels is not None and sp_encoded_t_local is None and not is_temporal:
+                # We encode the reference images once for both spatial AND temporal passes to anchor the video!
+                if final_pixels is not None and sp_encoded_t_local is None:
                     t_width_sp = v_tile_up.shape[4] * width_scale_factor
                     t_height_sp = v_tile_up.shape[3] * height_scale_factor
                     sp_final_pixels = final_pixels.clone()
@@ -1315,17 +1316,47 @@ Output only the prompt. Nothing before it, nothing after it."""
                         encoded_frames = encoded_frames.unsqueeze(0)
                     sp_encoded_t_local = encoded_frames.to(device)
                 
-                if sp_encoded_t_local is not None and not is_temporal:
-                    # Base Setup Injection inside sliding window
-                    inject_start = max(0, overlap_start)
-                    inject_end = min(chunk_end, sp_encoded_t_local.shape[2])
-                    if inject_start < inject_end:
-                        tile_inj_start = inject_start - overlap_start
-                        tile_inj_end = inject_end - overlap_start
-                        v_tile_up[:, :, tile_inj_start:tile_inj_end] = sp_encoded_t_local[:, :, inject_start:inject_end]
-                        for i in range(inject_start, inject_end):
-                            pixel_idx = min(i * time_scale_factor, max(0, len(strengths) - 1))
-                            v_mask_tile[:, i - overlap_start, :, :] = 1.0 - strengths[pixel_idx]
+                if sp_encoded_t_local is not None:
+                    if not is_temporal:
+                        # Base Setup Injection inside sliding window (Spatial)
+                        inject_start = max(0, overlap_start)
+                        inject_end = min(chunk_end, sp_encoded_t_local.shape[2])
+                        if inject_start < inject_end:
+                            tile_inj_start = inject_start - overlap_start
+                            tile_inj_end = inject_end - overlap_start
+                            v_tile_up[:, :, tile_inj_start:tile_inj_end] = sp_encoded_t_local[:, :, inject_start:inject_end]
+                            for i in range(inject_start, inject_end):
+                                pixel_idx = min(i * time_scale_factor, max(0, len(strengths) - 1))
+                                v_mask_tile[:, i - overlap_start, :, :] = 1.0 - strengths[pixel_idx]
+                    else:
+                        # START-FLICKER FIX (Temporal)
+                        num_base_setup_latents = sp_encoded_t_local.shape[2]
+                        num_temporal_setup_latents = max(1, num_base_setup_latents * 2 - 1)
+                        
+                        inject_start = max(0, overlap_start * 2)
+                        inject_end = min(chunk_end * 2 - 1, num_temporal_setup_latents)
+                        
+                        if inject_start < inject_end:
+                            for i in range(inject_start, inject_end):
+                                tile_idx = i - (overlap_start * 2)
+                                if 0 <= tile_idx < v_mask_tile.shape[1]:
+                                    orig_idx = i // 2
+                                    pixel_idx = min(orig_idx * time_scale_factor, max(0, len(strengths) - 1))
+                                    
+                                    if i % 2 == 0:
+                                        # EVEN FRAME: Direct 1:1 mapping to the original 24fps timeline.
+                                        # We inject the exact, pristine reference pixels to completely kill the flicker!
+                                        str_val = strengths[pixel_idx]
+                                        if orig_idx < sp_encoded_t_local.shape[2]:
+                                            v_tile_up[:, :, tile_idx:tile_idx+1] = sp_encoded_t_local[:, :, orig_idx:orig_idx+1]
+                                    else:
+                                        # ODD FRAME: The interpolated 48fps in-between frame.
+                                        # We DO NOT overwrite pixels here (so the UNet can draw the fluid motion), 
+                                        # but we blend the noise mask to keep the motion anchored.
+                                        next_idx = min((orig_idx + 1) * time_scale_factor, max(0, len(strengths) - 1))
+                                        str_val = (strengths[pixel_idx] + strengths[next_idx]) / 2.0
+                                        
+                                    v_mask_tile[:, tile_idx, :, :] = 1.0 - str_val
 
                 # MULTI-SHOT DIRECTOR CUT: Re-Inject High-Res Reference Frames into Upscaler!
                 if not is_temporal and not bypass_first_frame and first_frame is not None and num_prompts > 1 and autoregressive_chunking:
@@ -1380,15 +1411,33 @@ Output only the prompt. Nothing before it, nothing after it."""
                     v_mask_tile[:, :overlap_out_frames, :, :] = feather.view(1, -1, 1, 1)
 
                 # 2. Diffusion Sample
-                am_tile = a_mask_locked[:, :, a_start:a_end]
-                
-                # Wrap the 4D video mask in a 5D tuple exactly like ComfyUI expects
-                current_latent_tile = {
-                    "samples": comfy.nested_tensor.NestedTensor((v_tile_up, a_tile)),
-                    "noise_mask": comfy.nested_tensor.NestedTensor((v_mask_tile.unsqueeze(1), am_tile)),
-                    "sample_rate": sampling_rate,
-                    "type": "audio"
-                }
+                if is_temporal:
+                    # LIP SYNC + GHOSTING ULTIMATE FIX:
+                    # We MUST feed the audio to the Temporal Upscaler so it knows how to draw the mouth.
+                    # But because the UNet is running at 24fps, it thinks the doubled frames mean a 4-second video.
+                    # By mathematically doubling the audio latents (stretching them to 4 seconds), 
+                    # the UNet maps them perfectly! When played at 48fps, the sync is flawless!
+                    am_tile = a_mask_locked[:, :, a_start:a_end]
+                    
+                    # Duplicate the audio latents across the time dimension (dim=2)
+                    a_tile_temporal = torch.repeat_interleave(a_tile, 2, dim=2)
+                    am_tile_temporal = torch.repeat_interleave(am_tile, 2, dim=2)
+                    
+                    current_latent_tile = {
+                        "samples": comfy.nested_tensor.NestedTensor((v_tile_up, a_tile_temporal)),
+                        "noise_mask": comfy.nested_tensor.NestedTensor((v_mask_tile.unsqueeze(1), am_tile_temporal)),
+                        "sample_rate": sampling_rate,
+                        "type": "audio"
+                    }
+                else:
+                    # Standard spatial pass
+                    am_tile = a_mask_locked[:, :, a_start:a_end]
+                    current_latent_tile = {
+                        "samples": comfy.nested_tensor.NestedTensor((v_tile_up, am_tile)),
+                        "noise_mask": comfy.nested_tensor.NestedTensor((v_mask_tile.unsqueeze(1), am_tile)),
+                        "sample_rate": sampling_rate,
+                        "type": "audio"
+                    }
                 
                 latent_image_tile = current_latent_tile["samples"]
                 
@@ -1451,15 +1500,25 @@ Output only the prompt. Nothing before it, nothing after it."""
             if sampling_stages == 1:
                 upsample_sampler = build_custom_sampler(upsample_sampler_name, eta, bongmath)
 
-            temporal_sigmas = torch.FloatTensor([0.65, 0.35, 0.12, 0.0])
+            # Restore 3 exact steps (4 values) with sharp, ghost-free sigmas
+            temporal_sigmas = torch.FloatTensor([0.45, 0.25, 0.10, 0.0])
             
-            # --- SYNC FIX: Update the UNet conditioning to the new doubled framerate! ---
-            # If we don't do this, the UNet sees 2x latents at 24fps and stretches the motion 
-            # out to 2x the duration, completely ruining the lip-sync!
+            # GHOSTING & LIP SYNC DICTIONARY FIX:
+            # Keep the conditioning at the original 24fps so the model's motion prior stays sharp.
+            # To keep the ID-LoRA voice guidance locked, we mathematically double the audio tokens 
+            # in the dictionary to match the stretched audio latents we passed to the UNet!
             for i in range(len(final_positive)):
-                final_positive[i][1]["frame_rate"] = float(current_fps * 2)
+                final_positive[i][1]["frame_rate"] = float(current_fps)
+                if "ref_audio" in final_positive[i][1]:
+                    tokens = final_positive[i][1]["ref_audio"]["tokens"]
+                    # Duplicate tokens across the time dimension (dim=1)
+                    final_positive[i][1]["ref_audio"]["tokens"] = torch.repeat_interleave(tokens, 2, dim=1)
+                    
             for i in range(len(final_negative)):
-                final_negative[i][1]["frame_rate"] = float(current_fps * 2)
+                final_negative[i][1]["frame_rate"] = float(current_fps)
+                if "ref_audio" in final_negative[i][1]:
+                    tokens = final_negative[i][1]["ref_audio"]["tokens"]
+                    final_negative[i][1]["ref_audio"]["tokens"] = torch.repeat_interleave(tokens, 2, dim=1)
             
             global_v_samps_up = process_sliding_window_upscale(
                 pass_name="Temporal Upscale Pass",
@@ -1469,18 +1528,14 @@ Output only the prompt. Nothing before it, nothing after it."""
                 time_scale_factor=time_scale_factor, width_scale_factor=width_scale_factor, height_scale_factor=height_scale_factor, video_vae=video_vae, current_fps=current_fps, disable_pbar=disable_pbar, noise_seed=noise_seed
             )
             
+            # The global timeline audio (a_samps) remains perfectly untouched for decoding!
             sampled_tensor = comfy.nested_tensor.NestedTensor((global_v_samps_up, a_samps)).to(device)
             current_fps *= 2
             
-            if bypass_img_ref:
-                out_ref_frame_count = 1
-            else:
-                out_ref_frame_count = ((1 + duplicate_frames) * 2) - 1
-        else:
-            if bypass_img_ref:
-                out_ref_frame_count = 1
-            else:
-                out_ref_frame_count = (ref_frame_count // duplicate_frames * 8) + 8 + 1
+            # DROP-FRAME MATH FIX: 
+            # The temporal upscaler inserts an interpolated frame between every single existing frame.
+            # So if we had 33 anchor frames, we now have exactly (33 * 2) - 1 = 65 anchor frames!
+            out_ref_frame_count = (out_ref_frame_count * 2) - 1
 
         # ==========================================
         # 7. THE POST-CLEANSE HARD OVERWRITE
