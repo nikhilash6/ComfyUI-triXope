@@ -744,8 +744,8 @@ Output only the prompt. Nothing before it, nothing after it."""
         # Use exact [B, F, H, W] 4D mask sizing to completely bypass ComfyUI's 5D interpolation crash
         video_noise_mask = torch.ones((batch_size, video_samples.shape[2], video_samples.shape[3], video_samples.shape[4]), dtype=torch.float32, device=device)
 
-        z_channels = audio_vae.latent_channels
-        audio_freq = audio_vae.latent_frequency_bins
+        z_channels = getattr(audio_vae, "latent_channels", audio_vae.first_stage_model.latent_channels)
+        audio_freq = getattr(audio_vae, "latent_frequency_bins", audio_vae.first_stage_model.latent_frequency_bins)
         sampling_rate = int(audio_vae.sample_rate)
 
         num_audio_latents = audio_vae.num_of_latents_from_frames(frame_length, int(current_fps))
