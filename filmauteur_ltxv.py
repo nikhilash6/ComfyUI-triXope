@@ -183,6 +183,37 @@ class Noise_RandomNoise:
         batch_inds = input_latent.get("batch_index", None)
         return comfy.sample.prepare_noise(latent_image, self.seed, batch_inds)
 
+# --- IC-LORA & GUIDE UTILITIES ---
+class LTXVDilateLatent:
+    def dilate_latent(self, latent, horizontal_scale, vertical_scale):
+        samples = latent["samples"]
+        # Dilate the latent samples by repeating pixels spatially
+        samples = torch.repeat_interleave(samples, vertical_scale, dim=3)
+        samples = torch.repeat_interleave(samples, horizontal_scale, dim=4)
+        
+        # Create a matching noise mask for the dilated regions
+        batch, _, frames, height, width = samples.shape
+        noise_mask = torch.ones((batch, 1, frames, height, width), device=samples.device)
+        return [{"samples": samples, "noise_mask": noise_mask}]
+
+class LTXVCoordinateMap:
+    @staticmethod
+    def get_pixel_coords(guiding_latent, scale_factors, frame_idx):
+        # Maps latent tokens to absolute pixel timing and spatial coordinates
+        t_scale, h_scale, w_scale = scale_factors
+        _, _, frames, h, w = guiding_latent.shape
+        
+        # Calculate start/end pixel indices for RoPE (Rotary Positional Embeddings)
+        # format: [batch, [t,h,w], tokens, [start, end]]
+        num_tokens = frames * h * w
+        coords = torch.zeros((1, 3, num_tokens, 2), device=guiding_latent.device)
+        
+        # Simplified coordinate mapping for frame_idx 0
+        t_coords = torch.arange(frames, device=guiding_latent.device) * t_scale + frame_idx
+        coords[:, 0, :, 0] = t_coords.repeat_interleave(h * w)
+        coords[:, 0, :, 1] = coords[:, 0, :, 0] + (t_scale - 1)
+        return coords
+
 class FilmAuteur_LTXV:
 
     @classmethod
@@ -238,10 +269,10 @@ class FilmAuteur_LTXV:
 
                 # --- GROUP: Sampling ---
                 "grp_sampling": (["▼ Sampling Config"], {}),
-                "sampling_stages": ("INT", {"default": 2, "min": 1, "max": 3}),
+                "sampling_stages": ("INT", {"default": 1, "min": 1, "max": 3}),
                 "primary_sampler_name": (sampler_names, {"default": primary_default}),
                 "primary_cfg": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 100.0, "step": 0.1, "round": 0.01}),
-                "primary_steps": ("STRING", {"multiline": False, "default": "1.0, 0.995, 0.99, 0.9875, 0.975, 0.65, 0.28, 0.07, 0.0"}),
+                "primary_steps": ("STRING", {"multiline": False, "default": "16"}),
                 "upsample_sampler_name": (sampler_names, {"default": upsample_default}),
                 "upsample_cfg": ("FLOAT", {"default": 1.5, "min": 0.0, "max": 100.0, "step": 0.1, "round": 0.01}),
                 "upsample_manual_sigmas": ("STRING", {"multiline": False, "default": "0.55, 0.35, 0.15, 0.0"}),
@@ -281,8 +312,8 @@ class FilmAuteur_LTXV:
             "hidden": {"unique_id": "UNIQUE_ID"}
         }
 
-    RETURN_TYPES = ("STRING", "LATENT", "LATENT", "LATENT", "VIDEO", "IMAGE", "AUDIO", "FLOAT", "INT")
-    RETURN_NAMES = ("text_prompt(s)", "av_latent", "video_latent", "audio_latent", "video", "images", "audio", "fps", "ref_frame_count")
+    RETURN_TYPES = ("STRING", "LATENT", "LATENT", "LATENT", "VIDEO", "IMAGE", "AUDIO", "FLOAT", "INT", "ETA_TRACKER")
+    RETURN_NAMES = ("text_prompt(s)", "av_latent", "video_latent", "audio_latent", "video", "images", "audio", "fps", "ref_frame_count", "real-time_eta")
     FUNCTION = "process"
     CATEGORY = "triXope"
 
@@ -325,6 +356,75 @@ class FilmAuteur_LTXV:
 
         current_fps = frame_rate
         decode = True 
+        
+        # ==========================================
+        # ETA TRACKER MATH & CALLBACK FACTORY
+        # ==========================================
+        node_id = unique_id[0] if isinstance(unique_id, list) else unique_id
+        
+        # 1. Simulate Base Chunks & Steps
+        base_chunks = 0
+        if not autoregressive_chunking or length_in_seconds <= chunk_size_seconds:
+            base_chunks = 1
+        else:
+            shot_dur = length_in_seconds / max(1, len([p for p in scene_descriptions.split("|") if p.strip()]))
+            for s in range(max(1, len([p for p in scene_descriptions.split("|") if p.strip()]))):
+                curr = 0.0
+                end = (s + 1) * shot_dur
+                while curr < end:
+                    curr = min(curr + chunk_size_seconds, end)
+                    base_chunks += 1
+
+        if ',' in str(primary_steps):
+            base_steps = max(1, len(re.findall(r"[-+]?(?:\d*\.*\d+)", str(primary_steps))) - 1)
+        else:
+            try:
+                base_steps = max(1, int(float(str(primary_steps).strip())))
+            except ValueError:
+                base_steps = 8
+                    
+        # 2. Simulate Upscaler Chunks & Steps
+        temp_tile_len = 48
+        temp_overlap = 8
+
+        v_frames_base = int((length_in_seconds * current_fps) + 1)
+        latent_frames_base = ((v_frames_base - 1) // 8) + 1
+        
+        def count_sliding_chunks(total_latent_frames):
+            # This perfectly mirrors the mathematical `range()` loop used by the actual execution
+            return len(list(range(0, total_latent_frames, temp_tile_len - temp_overlap)))
+
+        sp_chunks = count_sliding_chunks(latent_frames_base) * (sampling_stages - 1)
+        sp_steps = max(1, len(re.findall(r"[-+]?(?:\d*\.*\d+)", str(upsample_manual_sigmas))) - 1) if sampling_stages > 1 else 0
+        
+        tm_chunks = count_sliding_chunks(latent_frames_base) if temporal_upscale else 0
+        tm_steps = 3 if temporal_upscale else 0 # 4 values in temporal_sigmas array = 3 actual diffusion steps
+        
+        total_chunks = base_chunks + sp_chunks + tm_chunks
+        total_global_steps = (base_chunks * (base_steps + 1)) + (sp_chunks * sp_steps) + (tm_chunks * tm_steps)
+        
+        current_chunk_idx = [0]
+        current_global_step = [0]
+
+        def wrap_callback(base_cb, pass_name):
+            current_chunk_idx[0] += 1
+            chunk_num = current_chunk_idx[0]
+            def custom_cb(step, x0, x, total_steps_in_pass):
+                current_global_step[0] += 1
+                PromptServer.instance.send_sync("ltxv_eta_update", {
+                    "node_id": node_id,
+                    "step": int(step) + 1,
+                    "total_steps": int(total_steps_in_pass),
+                    "chunk": int(chunk_num),
+                    "total_chunks": int(total_chunks),
+                    "global_step": int(current_global_step[0]),
+                    "total_global_steps": int(total_global_steps),
+                    "pass_name": pass_name,
+                    "is_face_restore": bool(restore_faces) 
+                })
+                if base_cb is not None:
+                    base_cb(step, x0, x, total_steps_in_pass)
+            return custom_cb
         
         # Audio Safeguard Variables
         has_audio_ref = not bypass_audio_ref and audio is not None
@@ -639,7 +739,6 @@ Output only the prompt. Nothing before it, nothing after it."""
 
         video_samples = torch.zeros([batch_size, 128, ((frame_length - 1) // 8) + 1, initial_height // 32, initial_width // 32], device=device)
 
-        # PRISTINE FIX: Apply the structural latent bias ONLY ONCE at the very beginning to prevent ghosting!
         video_samples = comfy.sample.fix_empty_latent_channels(primary_model, video_samples, None)
 
         # Use exact [B, F, H, W] 4D mask sizing to completely bypass ComfyUI's 5D interpolation crash
@@ -757,6 +856,80 @@ Output only the prompt. Nothing before it, nothing after it."""
             start_c = min(setup_total_latents, use_len)
             if start_c < use_len:
                 audio_noise_mask[:, :, start_c:use_len, :] = 0.0
+
+        # ==========================================
+        # 3.8 AUTOMATED FIRST-FRAME GUIDE (ADDGUIDE & ICLORA)
+        # ==========================================
+        if first_frame is not None:
+            print(f"--- Applying Automated First-Frame Guide (Strength: 1.0, Frame: 0) ---")
+            
+            # 1. Prepare High-Res First Frame for VAE Encoding
+            ff_img = first_frame[0:1] # Grab first image in batch
+            if ff_img.shape[1] != expected_height or ff_img.shape[2] != expected_width:
+                ff_img = comfy.utils.common_upscale(
+                    ff_img.movedim(-1, 1), expected_width, expected_height, "bilinear", "center"
+                ).movedim(1, -1)
+            
+            # 2. VAE Encode Reference
+            guide_pixels = ff_img[:, :, :, :3]
+            guide_latent = video_vae.encode(guide_pixels).to(device)
+            
+            # 3. Detect IC-LoRA Downscale Factor from Model Patches
+            # This scans the model to see if an IC-LoRA Loader passed a factor through
+            iclora_factor = 1.0
+            for patch in primary_model.patches.get("diffusion_model", []):
+                # Search for any metadata injected by LoRA loaders
+                if hasattr(patch, "latent_downscale_factor"):
+                    iclora_factor = patch.latent_downscale_factor
+                    break
+
+            # 4. Handle IC-LoRA Dilation if necessary
+            guide_mask = None
+            if iclora_factor > 1.0:
+                print(f"-> IC-LoRA Detected (Factor: {iclora_factor}). Dilating guide latent...")
+                dilated_data = LTXVDilateLatent().dilate_latent(
+                    {"samples": guide_latent}, 
+                    horizontal_scale=int(iclora_factor), 
+                    vertical_scale=int(iclora_factor)
+                )[0]
+                guide_latent = dilated_data["samples"]
+                guide_mask = dilated_data["noise_mask"]
+
+            # 5. Calculate Positional Keyframe Indices (RoPE)
+            # This ensures the model knows these tokens belong at Frame 0
+            scale_factors = video_vae.downscale_index_formula
+            pixel_coords = LTXVCoordinateMap.get_pixel_coords(guide_latent, scale_factors, 0)
+            
+            # Adjust RoPE for IC-LoRA patch sizes
+            if iclora_factor > 1.0:
+                spatial_offset = (iclora_factor - 1) * torch.tensor(scale_factors[1:], device=device)
+                pixel_coords[:, 1:, :, 1] += spatial_offset.view(2, 1)
+
+            # 6. Inject into Conditioning (Positive & Negative)
+            for cond_set in [final_positive, final_negative]:
+                for i in range(len(cond_set)):
+                    existing_keys = cond_set[i][1].get("keyframe_idxs", None)
+                    if existing_keys is None:
+                        cond_set[i][1]["keyframe_idxs"] = pixel_coords
+                    else:
+                        cond_set[i][1]["keyframe_idxs"] = torch.cat([existing_keys, pixel_coords], dim=2)
+
+            # 7. Inject into Latent Samples & Mask
+            # We append the guide latent to the end of the temporal dimension
+            # and set the noise mask to 0.0 (Strength 1.0) so it's treated as a hard reference
+            if video_samples.shape[1] > guide_latent.shape[1]:
+                # Pad for audio-concatenated channels
+                pad_len = video_samples.shape[1] - guide_latent.shape[1]
+                guide_latent = torch.nn.functional.pad(guide_latent, (0,0,0,0,0,0,0,pad_len), value=0)
+            
+            video_samples = torch.cat([video_samples, guide_latent], dim=2)
+            
+            # Create a 0.0 mask (Strength 1.0) for the guide frames
+            g_m_shape = (batch_size, 1, guide_latent.shape[2], video_noise_mask.shape[2], video_noise_mask.shape[3])
+            g_m = torch.zeros(g_m_shape, device=device, dtype=video_noise_mask.dtype)
+            
+            # Append to video noise mask
+            video_noise_mask = torch.cat([video_noise_mask, g_m.squeeze(1)], dim=1)
 
         # ==========================================
         # 4. VIDEO INJECTION & MASKING (PRIMARY PASS)
@@ -920,7 +1093,6 @@ Output only the prompt. Nothing before it, nothing after it."""
         primary_sampler = build_custom_sampler(primary_sampler_name, eta, bongmath)
         
         # --- HYBRID SIGMA/STEP PARSER ---
-        # Checks if user entered a single int for steps, or a comma-separated list for manual sigmas
         if ',' in str(primary_steps):
             sigmas_list = re.findall(r"[-+]?(?:\d*\.*\d+)", str(primary_steps))
             primary_sigmas = torch.FloatTensor([float(i) for i in sigmas_list])
@@ -931,10 +1103,7 @@ Output only the prompt. Nothing before it, nothing after it."""
                 p_steps = max(1, p_steps)
             except ValueError:
                 p_steps = 8
-                
-            # RESTORED QUALITY FIX: We MUST bring temporal frames back into the math! 
-            # LTX-Video relies on the massive token count of video to push the noise shift higher.
-            # Dropping this to spatial-only caused the video to be severely under-denoised (muddy/faded).
+
             if autoregressive_chunking:
                 active_sec = min(length_in_seconds, chunk_size_seconds + context_window_seconds)
             else:
@@ -953,9 +1122,6 @@ Output only the prompt. Nothing before it, nothing after it."""
             # Calculate the massive shift required for deep, rich contrast
             sigma_shift = (active_tokens) * mm_shift + b_shift
             
-            # THE TRUE FLOAT32 FIX: Instead of neutering the tokens, we clamp the final exponent to 13.5!
-            # exp(13.5) is ~730,000. Anything higher than this exceeds Float32's 7-decimal mantissa limit 
-            # and starts rounding your steps to 1.0 (deleting them).
             sigma_shift = min(sigma_shift, 13.5)
 
             power = 1
@@ -968,7 +1134,6 @@ Output only the prompt. Nothing before it, nothing after it."""
             sigmas[non_zero_mask] = stretched
             primary_sigmas = sigmas
 
-
         # THE DIRECTOR'S TIMELINE ENGINE
         if not autoregressive_chunking or length_in_seconds <= chunk_size_seconds:
             primary_guider.set_conds([final_positive[0]], final_negative)
@@ -979,7 +1144,8 @@ Output only the prompt. Nothing before it, nothing after it."""
             latent_image = current_latent["samples"]
             
             x0_output = {}
-            callback = latent_preview.prepare_callback(primary_guider.model_patcher, primary_sigmas.shape[-1] - 1, x0_output)
+            base_cb = latent_preview.prepare_callback(primary_guider.model_patcher, primary_sigmas.shape[-1] - 1, x0_output)
+            callback = wrap_callback(base_cb, "Base Generation")
 
             print(f"\n--- Running Autoregressive Pass 1/1 (Dimensions: {initial_width}x{initial_height}) ---")
             sampled_tensor = primary_guider.sample(noise_obj.generate_noise(current_latent), latent_image, primary_sampler, primary_sigmas, denoise_mask=av_noise_mask, callback=callback, disable_pbar=disable_pbar, seed=noise_seed)
@@ -1037,7 +1203,8 @@ Output only the prompt. Nothing before it, nothing after it."""
                     current_latent = {"samples": av_samples, "noise_mask": av_masks, "sample_rate": sampling_rate, "type": "audio"}
                     latent_image = current_latent["samples"]
                         
-                    callback = latent_preview.prepare_callback(primary_guider.model_patcher, primary_sigmas.shape[-1] - 1, x0_output)
+                    base_cb = latent_preview.prepare_callback(primary_guider.model_patcher, primary_sigmas.shape[-1] - 1, x0_output)
+                    callback = wrap_callback(base_cb, f"Base Shot {s+1}")
                     sampled_chunk = primary_guider.sample(noise_obj.generate_noise(current_latent), latent_image, primary_sampler, primary_sigmas, denoise_mask=av_masks, callback=callback, disable_pbar=disable_pbar, seed=noise_seed)
                     
                     unbound = sampled_chunk.unbind()
@@ -1236,7 +1403,7 @@ Output only the prompt. Nothing before it, nothing after it."""
         def process_sliding_window_upscale(pass_name, is_temporal, v_samps, a_samps,
                                            upscaler_model, guider, sampler, sigmas,
                                            noise_obj, eta, bongmath, final_pixels, strengths,
-                                           time_scale_factor, width_scale_factor, height_scale_factor, video_vae, current_fps, disable_pbar, noise_seed):
+                                           time_scale_factor, width_scale_factor, height_scale_factor, video_vae, current_fps, disable_pbar, noise_seed, wrap_callback):
             
             v_batch, v_channels, v_frames, v_height, v_width = v_samps.shape
             temp_tile_len = 48
@@ -1303,7 +1470,7 @@ Output only the prompt. Nothing before it, nothing after it."""
                 # Dynamically generate a perfectly sized 3D mask for this exact chunk! (B, F, H, W)
                 v_mask_tile = torch.ones((v_batch, v_tile_up.shape[2], v_tile_up.shape[3], v_tile_up.shape[4]), device=device, dtype=torch.float32)
                 
-                # We encode the reference images once for both spatial AND temporal passes to anchor the video!
+                # Encode the reference images once for both spatial AND temporal passes to anchor the video!
                 if final_pixels is not None and sp_encoded_t_local is None:
                     t_width_sp = v_tile_up.shape[4] * width_scale_factor
                     t_height_sp = v_tile_up.shape[3] * height_scale_factor
@@ -1344,15 +1511,10 @@ Output only the prompt. Nothing before it, nothing after it."""
                                     pixel_idx = min(orig_idx * time_scale_factor, max(0, len(strengths) - 1))
                                     
                                     if i % 2 == 0:
-                                        # EVEN FRAME: Direct 1:1 mapping to the original 24fps timeline.
-                                        # We inject the exact, pristine reference pixels to completely kill the flicker!
                                         str_val = strengths[pixel_idx]
                                         if orig_idx < sp_encoded_t_local.shape[2]:
                                             v_tile_up[:, :, tile_idx:tile_idx+1] = sp_encoded_t_local[:, :, orig_idx:orig_idx+1]
                                     else:
-                                        # ODD FRAME: The interpolated 48fps in-between frame.
-                                        # We DO NOT overwrite pixels here (so the UNet can draw the fluid motion), 
-                                        # but we blend the noise mask to keep the motion anchored.
                                         next_idx = min((orig_idx + 1) * time_scale_factor, max(0, len(strengths) - 1))
                                         str_val = (strengths[pixel_idx] + strengths[next_idx]) / 2.0
                                         
@@ -1412,11 +1574,6 @@ Output only the prompt. Nothing before it, nothing after it."""
 
                 # 2. Diffusion Sample
                 if is_temporal:
-                    # LIP SYNC + GHOSTING ULTIMATE FIX:
-                    # We MUST feed the audio to the Temporal Upscaler so it knows how to draw the mouth.
-                    # But because the UNet is running at 24fps, it thinks the doubled frames mean a 4-second video.
-                    # By mathematically doubling the audio latents (stretching them to 4 seconds), 
-                    # the UNet maps them perfectly! When played at 48fps, the sync is flawless!
                     am_tile = a_mask_locked[:, :, a_start:a_end]
                     
                     # Duplicate the audio latents across the time dimension (dim=2)
@@ -1442,7 +1599,8 @@ Output only the prompt. Nothing before it, nothing after it."""
                 latent_image_tile = current_latent_tile["samples"]
                 
                 x0_output = {}
-                callback = latent_preview.prepare_callback(guider.model_patcher, sigmas.shape[-1] - 1, x0_output)
+                base_cb = latent_preview.prepare_callback(guider.model_patcher, sigmas.shape[-1] - 1, x0_output)
+                callback = wrap_callback(base_cb, pass_name)
                 
                 # --- NOISE DRIFT FIX: Dynamically increment the seed per chunk! ---
                 chunk_noise_seed = noise_seed + chunk_idx
@@ -1483,9 +1641,9 @@ Output only the prompt. Nothing before it, nothing after it."""
                     is_temporal=False, v_samps=v_samps, a_samps=a_samps,
                     upscaler_model=spatial_upscaler, guider=upsample_guider, sampler=upsample_sampler, sigmas=upsample_sigmas,
                     noise_obj=noise_obj, eta=eta, bongmath=bongmath, final_pixels=final_pixels, strengths=strengths,
-                    time_scale_factor=time_scale_factor, width_scale_factor=width_scale_factor, height_scale_factor=height_scale_factor, video_vae=video_vae, current_fps=current_fps, disable_pbar=disable_pbar, noise_seed=noise_seed
+                    time_scale_factor=time_scale_factor, width_scale_factor=width_scale_factor, height_scale_factor=height_scale_factor, video_vae=video_vae, current_fps=current_fps, disable_pbar=disable_pbar, noise_seed=noise_seed, wrap_callback=wrap_callback
                 )
-                
+
                 sampled_tensor = comfy.nested_tensor.NestedTensor((global_v_samps_up, a_samps)).to(device)
 
         # --- TEMPORAL UPSCALING PASS ---
@@ -1500,13 +1658,8 @@ Output only the prompt. Nothing before it, nothing after it."""
             if sampling_stages == 1:
                 upsample_sampler = build_custom_sampler(upsample_sampler_name, eta, bongmath)
 
-            # Restore 3 exact steps (4 values) with sharp, ghost-free sigmas
             temporal_sigmas = torch.FloatTensor([0.45, 0.25, 0.10, 0.0])
             
-            # GHOSTING & LIP SYNC DICTIONARY FIX:
-            # Keep the conditioning at the original 24fps so the model's motion prior stays sharp.
-            # To keep the ID-LoRA voice guidance locked, we mathematically double the audio tokens 
-            # in the dictionary to match the stretched audio latents we passed to the UNet!
             for i in range(len(final_positive)):
                 final_positive[i][1]["frame_rate"] = float(current_fps)
                 if "ref_audio" in final_positive[i][1]:
@@ -1525,16 +1678,13 @@ Output only the prompt. Nothing before it, nothing after it."""
                 is_temporal=True, v_samps=v_samps, a_samps=a_samps,
                 upscaler_model=temporal_upscaler, guider=upsample_guider, sampler=upsample_sampler, sigmas=temporal_sigmas,
                 noise_obj=noise_obj, eta=eta, bongmath=bongmath, final_pixels=None, strengths=strengths,
-                time_scale_factor=time_scale_factor, width_scale_factor=width_scale_factor, height_scale_factor=height_scale_factor, video_vae=video_vae, current_fps=current_fps, disable_pbar=disable_pbar, noise_seed=noise_seed
+                time_scale_factor=time_scale_factor, width_scale_factor=width_scale_factor, height_scale_factor=height_scale_factor, video_vae=video_vae, current_fps=current_fps, disable_pbar=disable_pbar, noise_seed=noise_seed, wrap_callback=wrap_callback
             )
             
             # The global timeline audio (a_samps) remains perfectly untouched for decoding!
             sampled_tensor = comfy.nested_tensor.NestedTensor((global_v_samps_up, a_samps)).to(device)
             current_fps *= 2
             
-            # DROP-FRAME MATH FIX: 
-            # The temporal upscaler inserts an interpolated frame between every single existing frame.
-            # So if we had 33 anchor frames, we now have exactly (33 * 2) - 1 = 65 anchor frames!
             out_ref_frame_count = (out_ref_frame_count * 2) - 1
 
         # ==========================================
@@ -1544,7 +1694,7 @@ Output only the prompt. Nothing before it, nothing after it."""
         final_video_samples = unbound_samples[0].to(device)
         final_audio_samples = unbound_samples[1].clone().to(device)
 
-        # Audio Safeguard Check
+        # Audio Safeguard Check: Force the pristine master latents back into the final track!
         if has_audio_ref or has_audio_input:
             max_latents = final_audio_samples.shape[2]
             
@@ -1558,21 +1708,23 @@ Output only the prompt. Nothing before it, nothing after it."""
                 if start_c < max_latents:
                     final_audio_samples[:, :, start_c:max_latents, :] = master_latents[:, :, start_c:max_latents, :]
 
-        # Satisfy ComfyUI's output requirements by generating fresh, clean 5D mask tensors for the final outputs!
+        # Satisfy ComfyUI's output requirements by generating fresh, clean masks
         v_batch, _, v_frames, v_height, v_width = final_video_samples.shape
-        final_v_mask = torch.ones((v_batch, 1, v_frames, v_height, v_width), dtype=torch.float32, device=device)
+        
+        # Standard video masks are 4D: [B, F, H, W] to ensure third-party node compatibility
+        final_v_mask = torch.ones((v_batch, v_frames, v_height, v_width), dtype=torch.float32, device=device)
         final_a_mask = torch.ones_like(final_audio_samples)
         
         final_latent = {
             "samples": comfy.nested_tensor.NestedTensor((final_video_samples, final_audio_samples)),
-            "noise_mask": comfy.nested_tensor.NestedTensor((final_v_mask, final_a_mask)),
+            "noise_mask": comfy.nested_tensor.NestedTensor((final_v_mask.unsqueeze(1), final_a_mask)),
             "sample_rate": sampling_rate,
             "type": "audio"
         }
         
         video_out_latent = {
             "samples": final_video_samples,
-            "noise_mask": final_v_mask
+            "noise_mask": final_v_mask # Passed as 4D
         }
         
         audio_out_latent = {
@@ -1624,7 +1776,6 @@ Output only the prompt. Nothing before it, nothing after it."""
                         sd = comfy.utils.load_torch_file(model_path, safe_load=True)
                         loaded_facerestore_model = model_loading.load_state_dict(sd).eval().to(fr_device)
                         
-                    # CRITICAL FIX: Ensure the helper explicitly uses the active GPU device, not an intermediate placeholder!
                     face_helper = FaceRestoreHelper(1, face_size=512, crop_ratio=(1, 1), det_model=facedetection, save_ext='png', use_parse=True, device=fr_device)
                     
                     if hasattr(face_helper, 'face_det') and face_helper.face_det is not None:
@@ -1741,7 +1892,6 @@ Output only the prompt. Nothing before it, nothing after it."""
                             # This paste function uses BiseNet to create occlusion masks, protecting hands and hair.
                             pasted_img_bgr = face_helper.paste_faces_to_input_image()
                             
-                            # DEFLICKER BLEND: Globally crossfade the entire restored frame with the original VRAM frame
                             if face_restore_blend < 1.0:
                                 final_img_bgr = cv2.addWeighted(frame_bgr, 1.0 - face_restore_blend, pasted_img_bgr, face_restore_blend, 0)
                             else:
@@ -1782,8 +1932,6 @@ Output only the prompt. Nothing before it, nothing after it."""
             samples_to_drop = int(time_to_drop * sample_rate)
 
             # --- MULTI-SHOT AUDIO VAE ISOLATION FILTER ---
-            # Decoding latent discontinuities crashes the VAE convolutions. 
-            # We fix this by decoding each shot's latents perfectly independently and crossfading the real waveforms!
             if num_prompts > 1 and autoregressive_chunking:
                 print("--- Decoding Multi-Shot Audio Tracks ---")
                 shot_duration = length_in_seconds / num_prompts
@@ -1834,7 +1982,6 @@ Output only the prompt. Nothing before it, nothing after it."""
                 out_audio = {"waveform": empty_wf, "sample_rate": sample_rate}
             elif samples_to_drop > 0:
                 sliced_wf = waveform[..., samples_to_drop:]
-                # ELIMINATE INITIAL TRANSIENT AUDIO POP: Apply a 30ms linear fade-in to the master sliced waveform
                 fade_samples = min(int(0.03 * sample_rate), sliced_wf.shape[-1])
                 if fade_samples > 0:
                     fade_tensor = torch.linspace(0.0, 1.0, fade_samples, device=sliced_wf.device, dtype=sliced_wf.dtype)
@@ -1856,8 +2003,6 @@ Output only the prompt. Nothing before it, nothing after it."""
         if model2_to_use is not None and model2_to_use is not model_to_use:
             model2_to_use.unpatch_model()
 
-        # Sever all local Python references to the models before hitting the Free API!
-        # If we don't do this, ComfyUI sees these local variables keeping the model alive and throws a Memory Leak warning.
         del primary_model
         del model_to_use
         del model2_opt
@@ -1896,7 +2041,7 @@ Output only the prompt. Nothing before it, nothing after it."""
         else:
             print("--- Deep Cache Clearance Bypassed ---")
 
-        return (final_prompt_string_out, final_latent, video_out_latent, audio_out_latent, out_video, out_image, out_audio, float(current_fps), out_ref_frame_count)
+        return (final_prompt_string_out, final_latent, video_out_latent, audio_out_latent, out_video, out_image, out_audio, float(current_fps), out_ref_frame_count, node_id)
 
 class LTXVPostSliceAV:
     @classmethod
@@ -1925,7 +2070,7 @@ class LTXVPostSliceAV:
         
         if drop_first_n_frames >= num_frames:
             print(f"LTXV Custom Warning: Trying to drop {drop_first_n_frames} frames but only {num_frames} exist. Returning the last frame to prevent a crash.")
-            sliced_images = images[-1:] # Keep 1 frame so downstream nodes don't break
+            sliced_images = images[-1:]
         elif drop_first_n_frames > 0:
             sliced_images = images[drop_first_n_frames:]
             print(f"LTXV Custom: Successfully sliced {drop_first_n_frames} video frames.")
@@ -1942,7 +2087,6 @@ class LTXVPostSliceAV:
             sample_rate = audio.get("sample_rate")
             
             if waveform is not None and sample_rate is not None:
-                # Convert dropped frames to exact audio samples based on FPS
                 time_to_drop_seconds = drop_first_n_frames / fps
                 samples_to_drop = int(time_to_drop_seconds * sample_rate)
                 
@@ -1950,7 +2094,6 @@ class LTXVPostSliceAV:
                 
                 if samples_to_drop >= total_samples:
                     print(f"LTXV Custom Warning: Trying to drop {samples_to_drop} audio samples but only {total_samples} exist.")
-                    # Return an empty waveform of the same channel count to prevent crashes
                     empty_waveform = torch.zeros((waveform.shape[0], waveform.shape[1], 1), device=waveform.device, dtype=waveform.dtype)
                     sliced_audio = {"waveform": empty_waveform, "sample_rate": sample_rate}
                 elif samples_to_drop > 0:
