@@ -746,14 +746,24 @@ Output only the prompt. Nothing before it, nothing after it."""
 
         z_channels = getattr(audio_vae, "latent_channels", audio_vae.first_stage_model.latent_channels)
         audio_freq = getattr(audio_vae, "latent_frequency_bins", audio_vae.first_stage_model.latent_frequency_bins)
-        sampling_rate = int(audio_vae.sample_rate)
+        sampling_rate = int(getattr(audio_vae, "sample_rate", audio_vae.first_stage_model.sample_rate))
 
-        num_audio_latents = audio_vae.num_of_latents_from_frames(frame_length, int(current_fps))
+        # Helper to call the method from either the VAE wrapper or the internal model
+        get_audio_latents_func = getattr(audio_vae, "num_of_latents_from_frames", getattr(audio_vae.first_stage_model, "num_of_latents_from_frames", None))
+        if get_audio_latents_func is None:
+            raise AttributeError("Audio VAE is missing 'num_of_latents_from_frames' method.")
+        num_audio_latents = get_audio_latents_func(frame_length, int(current_fps))
 
-        total_silence_samples = int(((frame_length / current_fps) + 5.0) * sampling_rate)
-        silent_wf = torch.zeros((batch_size, 1, total_silence_samples), dtype=torch.float32, device=device)
+        # Ensure we have at least some samples to avoid a 0-element tensor
+        duration_sec = (frame_length / current_fps) + 5.0
+        total_silence_samples = max(1024, int(duration_sec * sampling_rate)) 
+
+        # LTXV Audio VAE typically expects [Batch, Samples] for raw encoding
+        silent_wf = torch.zeros((batch_size, 2, total_silence_samples), dtype=torch.float32, device=device)
         silent_dict = {"waveform": silent_wf, "sample_rate": sampling_rate}
-        true_silence_latent = audio_vae.encode(silent_dict).to(device)
+
+        # Pass the tensor directly
+        true_silence_latent = audio_vae.first_stage_model.encode(silent_wf).to(device)
 
         audio_samples = torch.zeros((batch_size, z_channels, num_audio_latents, audio_freq), device=device)
         use_silence_len = min(num_audio_latents, true_silence_latent.shape[2])
@@ -764,12 +774,12 @@ Output only the prompt. Nothing before it, nothing after it."""
         # 3.4 HELPER: LATENT COUNTER
         # ==========================================
         def get_latent_counts(sec):
-            if not bypass_img_ref:
-                frames = int((a * duplicate_frames) + (sec * current_fps) + 9)
-            else:
-                frames = int((sec * current_fps) + 1)
+            # ... existing frame math ...
             v_lat = ((frames - 1) // 8) + 1
-            a_lat = audio_vae.num_of_latents_from_frames(frames, int(current_fps))
+            
+            # Updated Method Call
+            get_audio_latents_func = getattr(audio_vae, "num_of_latents_from_frames", getattr(audio_vae.first_stage_model, "num_of_latents_from_frames", None))
+            a_lat = get_audio_latents_func(frames, int(current_fps))
             return v_lat, a_lat
 
         if bypass_img_ref:
@@ -788,8 +798,14 @@ Output only the prompt. Nothing before it, nothing after it."""
             region_a_frames = ref_frame_count 
             region_b_frames = duplicate_frames 
 
-        region_a_latents = audio_vae.num_of_latents_from_frames(region_a_frames, int(current_fps))
-        setup_total_latents = audio_vae.num_of_latents_from_frames(region_a_frames + region_b_frames, int(current_fps))
+        # Create a safe reference to the method
+        get_audio_latents_func = getattr(audio_vae, "num_of_latents_from_frames", getattr(audio_vae.first_stage_model, "num_of_latents_from_frames", None))
+        if get_audio_latents_func is None:
+            raise AttributeError("Audio VAE is missing 'num_of_latents_from_frames' method.")
+
+        # Apply the safe function to Region A and Setup totals
+        region_a_latents = get_audio_latents_func(region_a_frames, int(current_fps))
+        setup_total_latents = get_audio_latents_func(region_a_frames + region_b_frames, int(current_fps))
 
         total_samples = int((frame_length / current_fps) * sampling_rate)
         region_a_samples = int((region_a_frames / current_fps) * sampling_rate)
@@ -839,7 +855,16 @@ Output only the prompt. Nothing before it, nothing after it."""
                     master_wf[:, :c, setup_total_samples:setup_total_samples+use_samps] = inp_wf[:, :, :use_samps]
 
         master_dict = {"waveform": master_wf, "sample_rate": sampling_rate}
-        master_latents = audio_vae.encode(master_dict).to(device)
+        wf_to_encode = master_dict["waveform"]
+
+        # If the waveform is [Batch, Samples], unsqueeze to [Batch, 1, Samples] then expand to 2 channels
+        if wf_to_encode.dim() == 2:
+            wf_to_encode = wf_to_encode.unsqueeze(1).repeat(1, 2, 1)
+        # If it is already [Batch, 1, Samples], expand to 2 channels
+        elif wf_to_encode.dim() == 3 and wf_to_encode.shape[1] == 1:
+            wf_to_encode = wf_to_encode.repeat(1, 2, 1)
+
+        master_latents = audio_vae.first_stage_model.encode(wf_to_encode).to(device)
 
         use_len = min(num_audio_latents, master_latents.shape[2])
         if use_len > 0:
@@ -1011,7 +1036,18 @@ Output only the prompt. Nothing before it, nothing after it."""
         if has_audio_ref:
             audio_wf_lora = extract_and_resample(audio, sampling_rate).to(device)
             audio_dict_lora = {"waveform": audio_wf_lora, "sample_rate": sampling_rate}
-            audio_latents_lora = audio_vae.encode(audio_dict_lora)
+            wf_lora = audio_dict_lora["waveform"]
+
+            # Force the tensor into [Batch, 2 (Stereo), Samples] format
+            if wf_lora.dim() == 2:
+                # Change [Batch, Samples] to [Batch, 2, Samples]
+                wf_lora = wf_lora.unsqueeze(1).repeat(1, 2, 1)
+            elif wf_lora.dim() == 3 and wf_lora.shape[1] == 1:
+                # Change [Batch, 1, Samples] to [Batch, 2, Samples]
+                wf_lora = wf_lora.repeat(1, 2, 1)
+
+            # Encode using the internal model to bypass image-based memory checks
+            audio_latents_lora = audio_vae.first_stage_model.encode(wf_lora)
             
             b_, c_, t_, f_ = audio_latents_lora.shape
             ref_tokens = audio_latents_lora.permute(0, 2, 1, 3).reshape(b_, t_, c_ * f_)
@@ -1295,7 +1331,7 @@ Output only the prompt. Nothing before it, nothing after it."""
             preview_filename = f"stage1_preview_{uid}.mp4"
             preview_path = os.path.join(temp_dir, preview_filename)
             audio_path = os.path.join(temp_dir, f"stage1_preview_audio_{uid}.wav")
-            out_sample_rate = int(audio_vae.output_sample_rate)
+            out_sample_rate = int(getattr(audio_vae, "output_sample_rate", audio_vae.first_stage_model.output_sample_rate))
             
             # --- DECODE AND TRIM AUDIO ---
             try:
@@ -1450,8 +1486,16 @@ Output only the prompt. Nothing before it, nothing after it."""
                 # Audio slice for context only
                 pixel_start = overlap_start * time_scale_factor
                 pixel_end = 1 + (chunk_end - 1) * time_scale_factor
-                a_start = audio_vae.num_of_latents_from_frames(pixel_start, int(current_fps))
-                a_end = audio_vae.num_of_latents_from_frames(pixel_end, int(current_fps))
+                # Create a safe reference to the method inside the sliding window loop
+                get_audio_latents_func = getattr(audio_vae, "num_of_latents_from_frames", getattr(audio_vae.first_stage_model, "num_of_latents_from_frames", None))
+
+                if get_audio_latents_func is None:
+                    raise AttributeError("Audio VAE is missing 'num_of_latents_from_frames' method.")
+
+                # Apply the safe function to calculate audio slices for this window
+                a_start = get_audio_latents_func(pixel_start, int(current_fps))
+                a_end = get_audio_latents_func(pixel_end, int(current_fps))
+
                 a_tile = a_samps[:, :, a_start:a_end]
                 
                 # 1. Neural Net Upscale
@@ -1697,21 +1741,35 @@ Output only the prompt. Nothing before it, nothing after it."""
         # Audio Safeguard Check: Force the pristine master latents back into the final track!
         if has_audio_ref or has_audio_input:
             max_latents = final_audio_samples.shape[2]
+            master_max = master_latents.shape[2]
             
             if has_audio_ref:
-                lock_a = min(region_a_latents, max_latents)
+                # Use min() to ensure we don't exceed the bounds of either tensor
+                lock_a = min(region_a_latents, max_latents, master_max)
                 if lock_a > 0:
                     final_audio_samples[:, :, :lock_a, :] = master_latents[:, :, :lock_a, :]
 
             if has_audio_input:
+                # 1. Determine where to start the overwrite
                 start_c = min(setup_total_latents, max_latents)
-                if start_c < max_latents:
-                    final_audio_samples[:, :, start_c:max_latents, :] = master_latents[:, :, start_c:max_latents, :]
+                
+                # 2. Calculate how much space is left in the destination
+                target_len = max_latents - start_c
+                
+                # 3. Calculate how much data is actually available in the source
+                available_master = master_max - start_c
+                
+                # 4. Use the smaller of the two to prevent the "expanded size" mismatch
+                copy_len = min(target_len, available_master)
+                
+                if copy_len > 0:
+                    final_audio_samples[:, :, start_c : start_c + copy_len, :] = \
+                        master_latents[:, :, start_c : start_c + copy_len, :]
 
         # Satisfy ComfyUI's output requirements by generating fresh, clean masks
         v_batch, _, v_frames, v_height, v_width = final_video_samples.shape
         
-        # Standard video masks are 4D: [B, F, H, W] to ensure third-party node compatibility
+        # Standard video masks are 4D: [B, F, H, W]
         final_v_mask = torch.ones((v_batch, v_frames, v_height, v_width), dtype=torch.float32, device=device)
         final_a_mask = torch.ones_like(final_audio_samples)
         
@@ -1927,7 +1985,7 @@ Output only the prompt. Nothing before it, nothing after it."""
             if a_latent_samples.is_nested:
                 a_latent_samples = a_latent_samples.unbind()[-1]
             
-            sample_rate = int(audio_vae.output_sample_rate)
+            sample_rate = int(getattr(audio_vae, "output_sample_rate", audio_vae.first_stage_model.output_sample_rate))
             time_to_drop = out_ref_frame_count / current_fps
             samples_to_drop = int(time_to_drop * sample_rate)
 
@@ -1978,7 +2036,8 @@ Output only the prompt. Nothing before it, nothing after it."""
             total_samples = waveform.shape[-1]
             
             if samples_to_drop >= total_samples:
-                empty_wf = torch.zeros((waveform.shape[0], waveform.shape[1], 1), device=waveform.device, dtype=waveform.dtype)
+                # Create a 2D empty waveform [Channels, 1]
+                empty_wf = torch.zeros((waveform.shape[1], 1), device=waveform.device, dtype=waveform.dtype)
                 out_audio = {"waveform": empty_wf, "sample_rate": sample_rate}
             elif samples_to_drop > 0:
                 sliced_wf = waveform[..., samples_to_drop:]
@@ -1986,10 +2045,15 @@ Output only the prompt. Nothing before it, nothing after it."""
                 if fade_samples > 0:
                     fade_tensor = torch.linspace(0.0, 1.0, fade_samples, device=sliced_wf.device, dtype=sliced_wf.dtype)
                     sliced_wf[..., :fade_samples] *= fade_tensor
-                out_audio = {"waveform": sliced_wf, "sample_rate": sample_rate}
-            else:
-                out_audio = {"waveform": waveform, "sample_rate": sample_rate}
                 
+                # Squeeze Batch dimension: [1, 2, N] -> [2, N]
+                final_wf = sliced_wf.squeeze(0) if sliced_wf.dim() == 3 else sliced_wf
+                out_audio = {"waveform": final_wf, "sample_rate": sample_rate}
+            else:
+                # Squeeze Batch dimension: [1, 2, N] -> [2, N]
+                final_wf = waveform.squeeze(0) if waveform.dim() == 3 else waveform
+                out_audio = {"waveform": final_wf, "sample_rate": sample_rate}
+
             if InputImpl is not None and Types is not None and out_image is not None:
                 out_video = InputImpl.VideoFromComponents(Types.VideoComponents(images=out_image, audio=out_audio, frame_rate=Fraction(current_fps)))
                 
