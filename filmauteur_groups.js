@@ -21,13 +21,60 @@ app.registerExtension({
                 }
             };
 
-            // --- RESTORES SAVED HEIGHT ---
+            // --- 1. DYNAMIC UI RESIZING (THE ENFORCER) ---
+            const onResize = nodeType.prototype.onResize;
+            nodeType.prototype.onResize = function(size) {
+                if (onResize) onResize.apply(this, arguments);
+                if (!this.widgets) return;
+
+                let textWidgets = this.widgets.filter(w => w.type === "customtext" || (w.inputEl && w.inputEl.tagName === "TEXTAREA"));
+                if (textWidgets.length === 0) return;
+
+                // Temporarily zero out text boxes to measure the fixed UI exactly
+                for (let w of textWidgets) {
+                    w.computeSize = function(width) { return [width, 0]; };
+                }
+
+                // Measure Pins, Buttons, Toggles, and the Preview Monitor
+                let minNodeSize = this.computeSize([size[0], 0]);
+                let fixedHeight = minNodeSize[1];
+
+                // Distribute remaining height from the node's current size
+                let availableHeight = size[1] - fixedHeight - 15; 
+                let heightPerBox = Math.max(40, availableHeight / textWidgets.length);
+
+                for (let w of textWidgets) {
+                    if (!w.options) w.options = {};
+                    w.options.height = heightPerBox;
+
+                    // Lock the canvas reporting
+                    w.computeSize = function(width) { return [width, heightPerBox]; };
+
+                    // Lock the HTML element from auto-expanding
+                    if (w.inputEl) {
+                        let finalHeight = (heightPerBox - 10) + "px";
+                        w.inputEl.style.setProperty("height", finalHeight, "important");
+                        w.inputEl.style.setProperty("min-height", finalHeight, "important");
+                        w.inputEl.style.setProperty("max-height", finalHeight, "important");
+                    }
+                }
+            };
+
+            // --- 2. THE LOAD PROTECTOR ---
             const onConfigure = nodeType.prototype.onConfigure;
             nodeType.prototype.onConfigure = function(o) {
                 if (onConfigure) onConfigure.apply(this, arguments);
-                // Stash the exact size from the JSON save file before any layout math messes with it
                 if (o.size) {
+                    // We stash the size, but we also "Zero" the widgets here to 
+                    // prevent LiteGraph from rejecting the shrink on load
                     this._true_saved_size = [o.size[0], o.size[1]];
+                    if (this.widgets) {
+                        for (let w of this.widgets) {
+                            if (w.type === "customtext" || (w.inputEl && w.inputEl.tagName === "TEXTAREA")) {
+                                w.computeSize = function(width) { return [width, 40]; };
+                            }
+                        }
+                    }
                 }
             };
 
@@ -57,7 +104,7 @@ app.registerExtension({
                     "length_in_seconds": "Total video length in seconds. In multi-shot mode, this will automatically round to the nearest whole number evenly divisible by your shot count.",
                     "frame_rate": "Target frames per second.",
                     "sampling_stages": "Number of processing stages. 1 = No upscale, 2 = One 2x upscale pass, 3 = Two 2x upscale passes (4x total).",
-                    "primary_steps": "Enter a single number for steps (e.g., 20), or a comma-separated list for manual sigmas (e.g., 1.0, 0.8, 0.0).",
+                    "primary_steps": "Enter a single number for steps (e.g., 20), or a comma-separated list for manual sigmas (e.g., 1.0, 0.995, 0.99, 0.9875, 0.975, 0.65, 0.28, 0.07, 0.0).",
                     "eta": "Calculated noise amount to be added, then removed, after each step.",
                     "bongmath": "Injects BONGMATH parameter into extra_options to act exactly as ClownSampler does for RES4LYF nodes.",
                     "autoregressive_chunking": "Automatically flush VRAM and outpaint the video in chunks if the length exceeds the chunk size.",
@@ -114,7 +161,7 @@ app.registerExtension({
                         
                         if (dummyIndex !== -1) {
                             let dummyWidget = this.widgets[dummyIndex];
-                            toggleWidget(dummyWidget, false); // Nuke the dummy header's dot
+                            toggleWidget(dummyWidget, false); 
 
                             let propKey = "groupState_" + def.btnName;
                             if (this.properties[propKey] === undefined) {
@@ -157,24 +204,39 @@ app.registerExtension({
                         }
                     }
                     
-                    let bootMinSize = this.computeSize();
-                    let finalW = this.size[0];
-                    let finalH = this.size[1];
+                    // --- FINAL LOAD-SIZE CALCULATION ---
+                    
+                    // 1. Identify text boxes
+                    let textWidgets = this.widgets.filter(w => w.type === "customtext" || (w.inputEl && w.inputEl.tagName === "TEXTAREA"));
+                    
+                    // 2. Temporarily zero them out to find the height of purely static UI (pins/buttons)
+                    for (let w of textWidgets) {
+                        w.computeSize = function(width) { return [width, 0]; };
+                    }
+                    
+                    // 3. Calculate "Compact Height": Static UI + (40px per box) + buffer
+                    let bootMinSize = this.computeSize([this.size[0], 0]);
+                    let compactHeight = bootMinSize[1] + (textWidgets.length * 40) + 20;
 
+                    let finalW = this.size[0];
+                    let finalH = compactHeight; // Default to compact if no save found
+
+                    // 4. Apply the saved size if it exists, otherwise use compactHeight
                     if (this._true_saved_size) {
                         finalW = this._true_saved_size[0];
                         finalH = this._true_saved_size[1];
                         delete this._true_saved_size; 
                     }
 
-                    this.setSize([
-                        Math.max(bootMinSize[0], finalW), 
-                        Math.max(bootMinSize[1], finalH)
-                    ]);
+                    // 5. Force the node to the final size and trigger the layout engine
+                    this.setSize([finalW, finalH]);
+                    if (this.onResize) {
+                        this.onResize(this.size);
+                    }
                     
                     app.graph.setDirtyCanvas(true, true);
                     
-                }, 250); 
+                }, 250);
 
                 return r;
             };
