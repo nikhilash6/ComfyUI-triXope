@@ -1,5 +1,5 @@
 # WORK-IN-PROGRESS
-NOTICE: In it's current state (as of 4/21/2026), Film Auteur (LTXV) appears to be functioning properly. The main focus is currently on tightening up image reference-to-video which, in it's current state, is hit-or-miss.<br><br>
+NOTICE: Please check in for daily updates as this repo is in constant development.<br><br>
 Don't expect everything to function perfectly.<br>
 Please check back frequently as I am making constant updates and improvements...<br><br>
 Here you will find a collection of custom nodes for ComfyUI with the intent of enhancing your film production workflow.<br><br>
@@ -21,7 +21,8 @@ Film Auteur (LTXV) - one node to rule them all.<br>
 - Ollama integration for prompt enhancement (Gemma 4 26b recommended)<br>
 - Length input as seconds (calculated & converted to frame count internally based on fps)<br>
 - Multi-shot inferencing using "|" separators between prompts<br>
-- first_frame input accepts image batch for storyboard processing (1 shot per image coinciding with multi-prompt input)<br>
+- Image input accepts image batch for storyboard processing (1 shot per image coinciding with multi-prompt input) or reference images<br>
+- LTXV Add Guide & LTX Add Video IC-LoRA Guide fully implemented under the hood for added control & consistency over reference images<br>
 - Inifinite (truly) length by use of autoregressive chunking and built-in sliding context windows<br>
 - Up to 3 sampling stages for built-in upsampling (model2_opt if wanted for stages 2 & 3)<br>
 - Temporal upscaling option (enable to double framerate and visual refinement)<br>
@@ -30,6 +31,7 @@ Film Auteur (LTXV) - one node to rule them all.<br>
 - Built-in sageattention and fp16 accumulation (must be installed to use)<br>
 - Built in chunk feed forward (to assist in computational efficiency)<br>
 - Built in stage 1 preview<br>
+- Real-Time ETA counter (with assist node)
 
 Note: Refer to the tooltips for important information.<br><br>
 Just plug in your models, optional reference images and/or audio, set your desired paramerters, send it out to your preferred video save or combine node, and you're good-to-go.<br><br>
@@ -39,12 +41,3 @@ More nodes coming soon...<br>
 1. cd custom_nodes<br>
 2. git clone https://github.com/triXope/ComfyUI-triXope.git<br>
 3. Restart ComfyUI<br>
-
-# Road Map
-Future plans for Film Auteur (LTXV)<br>
-- Real-time ETA counter<br>
-- add optional positive and negative inputs that, when connected, will override the internal prompting<br>
-- LTXV Add Guide (for improved subject consistency)<br>
-- LTXV Add Video IC-LoRA Guide<br>
-- possible multi pass without spatial upscaler<br>
-- FFLF<br>
