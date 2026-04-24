@@ -774,10 +774,15 @@ Output only the prompt. Nothing before it, nothing after it."""
         # 3.4 HELPER: LATENT COUNTER
         # ==========================================
         def get_latent_counts(sec):
-            # ... existing frame math ...
+            # Calculate exact frames based on timeline position
+            if bypass_img_ref:
+                frames = int((sec * current_fps) + 1)
+            else:
+                frames = int((a * duplicate_frames) + (sec * current_fps) + 9)
+                
             v_lat = ((frames - 1) // 8) + 1
             
-            # Updated Method Call
+            # Safe Method Call
             get_audio_latents_func = getattr(audio_vae, "num_of_latents_from_frames", getattr(audio_vae.first_stage_model, "num_of_latents_from_frames", None))
             a_lat = get_audio_latents_func(frames, int(current_fps))
             return v_lat, a_lat
@@ -1353,7 +1358,7 @@ Output only the prompt. Nothing before it, nothing after it."""
                         
                         chunk = a_samps_prev[:, :, start_lat:end_lat]
                         if chunk.shape[2] > 0:
-                            wf = audio_vae.decode(chunk).to(device)
+                            wf = audio_vae.first_stage_model.decode(chunk).to(device)
                             exact_samples = int(shot_duration * out_sample_rate)
                             if wf.shape[-1] > exact_samples:
                                 wf = wf[..., :exact_samples]
@@ -1367,7 +1372,7 @@ Output only the prompt. Nothing before it, nothing after it."""
                             decoded_waveforms.append(wf)
                     preview_audio_wf = torch.cat(decoded_waveforms, dim=-1) if decoded_waveforms else torch.zeros((1, 1, 1024), device=device)
                 else:
-                    preview_audio_wf = audio_vae.decode(a_samps_prev).to(device)
+                    preview_audio_wf = audio_vae.first_stage_model.decode(a_samps_prev).to(device)
                 
                 wf_out = preview_audio_wf[0].cpu()
                 if wf_out.ndim == 3:
@@ -1986,7 +1991,11 @@ Output only the prompt. Nothing before it, nothing after it."""
                 a_latent_samples = a_latent_samples.unbind()[-1]
             
             sample_rate = int(getattr(audio_vae, "output_sample_rate", audio_vae.first_stage_model.output_sample_rate))
-            time_to_drop = out_ref_frame_count / current_fps
+            
+            # 1. Calculate drop time using BASE framerate to prevent Temporal Upscaler lip-sync drift!
+            base_fps = current_fps / 2.0 if temporal_upscale else current_fps
+            base_ref_count = (out_ref_frame_count + 1) / 2.0 if temporal_upscale else out_ref_frame_count
+            time_to_drop = base_ref_count / base_fps
             samples_to_drop = int(time_to_drop * sample_rate)
 
             # --- MULTI-SHOT AUDIO VAE ISOLATION FILTER ---
@@ -2009,10 +2018,13 @@ Output only the prompt. Nothing before it, nothing after it."""
                         _, end_lat_a = get_latent_counts(sec)
                         
                     shot_a_latent = a_latent_samples[:, :, start_lat_a:end_lat_a]
-                    shot_wf = audio_vae.decode(shot_a_latent).to(a_latent_samples.device)
+                    shot_wf = audio_vae.first_stage_model.decode(shot_a_latent).to(a_latent_samples.device)
                     
-                    # Apply a tiny 50ms fade in/out to each individual shot's waveform
-                    fade_samps = min(int(0.05 * sample_rate), shot_wf.shape[-1] // 2)
+                    # Resample from 16kHz to 48kHz to fix the "Fast Playback" bug
+                    shot_wf = torchaudio.functional.resample(shot_wf, sampling_rate, sample_rate)
+                    
+                    # Apply a microscopic 2-sample fade to prevent pops
+                    fade_samps = 2
                     if fade_samps > 0:
                         fade_in = torch.linspace(0.0, 1.0, fade_samps, device=shot_wf.device, dtype=shot_wf.dtype)
                         fade_out = torch.linspace(1.0, 0.0, fade_samps, device=shot_wf.device, dtype=shot_wf.dtype)
@@ -2023,22 +2035,53 @@ Output only the prompt. Nothing before it, nothing after it."""
                     
                 waveform = torch.cat(decoded_waveforms, dim=-1)
             else:
-                waveform = audio_vae.decode(a_latent_samples).to(a_latent_samples.device)
+                waveform = audio_vae.first_stage_model.decode(a_latent_samples).to(a_latent_samples.device)
+                # Resample from 16kHz to 48kHz
+                waveform = torchaudio.functional.resample(waveform, sampling_rate, sample_rate)
 
-            num_frames = decoded_video.shape[0]
-            if out_ref_frame_count >= num_frames:
-                out_image = decoded_video[-1:] 
-            elif out_ref_frame_count > 0:
-                out_image = decoded_video[out_ref_frame_count:]
-            else:
-                out_image = decoded_video
+            # --- PRISTINE AUDIO OVERRIDE (Fixes VAE degradation) ---
+            if has_audio_ref or has_audio_input:
+                pristine_wf = torchaudio.functional.resample(master_wf.clone(), sampling_rate, sample_rate).to(waveform.device)
                 
+                # Match channel counts (forces mono to stereo if necessary)
+                if pristine_wf.shape[1] < waveform.shape[1]:
+                    pristine_wf = pristine_wf.repeat(1, waveform.shape[1], 1)
+                elif pristine_wf.shape[1] > waveform.shape[1]:
+                    waveform = waveform.repeat(1, pristine_wf.shape[1], 1)
+                    
+                region_a_samps_out = int((region_a_frames / base_fps) * sample_rate)
+                setup_total_samps_out = int(((region_a_frames + region_b_frames) / base_fps) * sample_rate)
+                
+                # Composite the pristine audio exactly over the corresponding frames
+                if has_audio_ref:
+                    limit = min(region_a_samps_out, pristine_wf.shape[-1], waveform.shape[-1])
+                    if limit > 0:
+                        waveform[..., :limit] = pristine_wf[..., :limit]
+                
+                if has_audio_input:
+                    rem_pristine = pristine_wf.shape[-1] - setup_total_samps_out
+                    rem_wave = waveform.shape[-1] - setup_total_samps_out
+                    limit = min(rem_pristine, rem_wave)
+                    if limit > 0:
+                        waveform[..., setup_total_samps_out : setup_total_samps_out + limit] = \
+                            pristine_wf[..., setup_total_samps_out : setup_total_samps_out + limit]
+
+            # --- FINAL SLICING & FORMATTING FOR VHS COMBINE ---
+            num_frames = decoded_video.shape[0]
+            
+            # Send images explicitly to CPU to prevent standard nodes from freezing
+            if out_ref_frame_count >= num_frames:
+                out_image = decoded_video[-1:].cpu()
+            elif out_ref_frame_count > 0:
+                out_image = decoded_video[out_ref_frame_count:].cpu()
+            else:
+                out_image = decoded_video.cpu()
+
             total_samples = waveform.shape[-1]
             
             if samples_to_drop >= total_samples:
-                # Create a 2D empty waveform [Channels, 1]
-                empty_wf = torch.zeros((waveform.shape[1], 1), device=waveform.device, dtype=waveform.dtype)
-                out_audio = {"waveform": empty_wf, "sample_rate": sample_rate}
+                empty_wf = torch.zeros((1, 2, 1), device=waveform.device, dtype=torch.float32)
+                out_audio = {"waveform": empty_wf.cpu(), "sample_rate": sample_rate}
             elif samples_to_drop > 0:
                 sliced_wf = waveform[..., samples_to_drop:]
                 fade_samples = min(int(0.03 * sample_rate), sliced_wf.shape[-1])
@@ -2046,16 +2089,36 @@ Output only the prompt. Nothing before it, nothing after it."""
                     fade_tensor = torch.linspace(0.0, 1.0, fade_samples, device=sliced_wf.device, dtype=sliced_wf.dtype)
                     sliced_wf[..., :fade_samples] *= fade_tensor
                 
-                # Squeeze Batch dimension: [1, 2, N] -> [2, N]
-                final_wf = sliced_wf.squeeze(0) if sliced_wf.dim() == 3 else sliced_wf
+                # GUARANTEE [1, 2, Samples] Format for FFmpeg and VHS
+                final_wf = sliced_wf
+                if final_wf.dim() == 2:
+                    final_wf = final_wf.unsqueeze(0)
+                if final_wf.shape[1] == 1:
+                    final_wf = final_wf.repeat(1, 2, 1)
+                elif final_wf.shape[1] > 2:
+                    final_wf = final_wf[:, :2, :]
+                
+                final_wf = final_wf.to(torch.float32).clamp(-1.0, 1.0).cpu() 
                 out_audio = {"waveform": final_wf, "sample_rate": sample_rate}
             else:
-                # Squeeze Batch dimension: [1, 2, N] -> [2, N]
-                final_wf = waveform.squeeze(0) if waveform.dim() == 3 else waveform
+                # GUARANTEE [1, 2, Samples] Format
+                final_wf = waveform
+                if final_wf.dim() == 2:
+                    final_wf = final_wf.unsqueeze(0)
+                if final_wf.shape[1] == 1:
+                    final_wf = final_wf.repeat(1, 2, 1)
+                elif final_wf.shape[1] > 2:
+                    final_wf = final_wf[:, :2, :]
+                
+                final_wf = final_wf.to(torch.float32).clamp(-1.0, 1.0).cpu()
                 out_audio = {"waveform": final_wf, "sample_rate": sample_rate}
 
+            # --- COMFYUI EXPERIMENTAL 'VIDEO' TYPE SUPPORT ---
             if InputImpl is not None and Types is not None and out_image is not None:
-                out_video = InputImpl.VideoFromComponents(Types.VideoComponents(images=out_image, audio=out_audio, frame_rate=Fraction(current_fps)))
+                try:
+                    out_video = InputImpl.VideoFromComponents(Types.VideoComponents(images=out_image, audio=out_audio, frame_rate=Fraction(current_fps)))
+                except Exception as e:
+                    print(f"LTXV Custom Warning: Failed to assemble VIDEO type: {e}")
                 
             print("--- Decoding & Slicing Complete ---")
 
